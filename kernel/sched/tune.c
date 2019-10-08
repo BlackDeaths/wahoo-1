@@ -574,7 +574,7 @@ prefer_idle_write(struct cgroup_subsys_state *css, struct cftype *cft,
 	    u64 prefer_idle)
 {
 	struct schedtune *st = css_st(css);
-	st->prefer_idle = prefer_idle;
+	st->prefer_idle = !!prefer_idle;
 
 	return 0;
 }
@@ -594,6 +594,9 @@ boost_write(struct cgroup_subsys_state *css, struct cftype *cft,
 	struct schedtune *st = css_st(css);
 	unsigned threshold_idx;
 	int boost_pct;
+
+	if (!strcmp(css->cgroup->kn->name, "top-app"))
+		boost = 1;
 
 	if (boost < -100 || boost > 100)
 		return -EINVAL;

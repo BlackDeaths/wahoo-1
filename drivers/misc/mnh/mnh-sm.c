@@ -474,7 +474,7 @@ static int mnh_transfer_firmware(size_t fw_size, const uint8_t *fw_data,
 	int buf_index = 0;
 	struct mnh_dma_element_t dma_blk;
 	int err = -EINVAL;
-	size_t sent = 0, size, remaining;
+	size_t sent = 0, size = 0, remaining;
 
 	remaining = fw_size;
 
@@ -1994,8 +1994,7 @@ static int mnh_sm_open(struct inode *inode, struct file *filp)
 
 	/* only stage fw transf. when the first handle to the cdev is opened */
 	if (dev_ctr == 1) {
-		if (mnh_sm_dev->ion &&
-		    !mnh_sm_dev->ion[FW_PART_PRI]->is_fw_ready) {
+		if (!mnh_sm_dev->ion[FW_PART_PRI]->is_fw_ready) {
 			/* Request firmware and stage them to carveout buf. */
 			dev_dbg(mnh_sm_dev->dev, "%s: staging firmware\n",
 				__func__);
