@@ -640,13 +640,19 @@ static void configure_bark_dump(struct msm_watchdog_data *wdog_dd)
 			 */
 		}
 	} else if (IS_ENABLED(CONFIG_MSM_MEMORY_DUMP_V2)) {
+<<<<<<< HEAD
 		cpu_data = kzalloc(sizeof(struct msm_dump_data) *
 				   num_present_cpus(), GFP_KERNEL);
+=======
+		cpu_data = kcalloc(num_present_cpus(),
+				   sizeof(struct msm_dump_data),
+				   GFP_KERNEL);
+>>>>>>> parent of 0c5439cbbdfd... test
 		if (!cpu_data) {
 			pr_err("cpu dump data structure allocation failed\n");
 			goto out0;
 		}
-		cpu_buf = kzalloc(MAX_CPU_CTX_SIZE * num_present_cpus(),
+		cpu_buf = kcalloc(MAX_CPU_CTX_SIZE, num_present_cpus(),
 				  GFP_KERNEL);
 		if (!cpu_buf) {
 			pr_err("cpu reg context space allocation failed\n");

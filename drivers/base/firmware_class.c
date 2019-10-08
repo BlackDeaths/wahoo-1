@@ -914,8 +914,8 @@ static int fw_realloc_buffer(struct firmware_priv *fw_priv, int min_size)
 					 buf->page_array_size * 2);
 		struct page **new_pages;
 
-		new_pages = kmalloc(new_array_size * sizeof(void *),
-				    GFP_KERNEL);
+		new_pages = kmalloc_array(new_array_size, sizeof(void *),
+					  GFP_KERNEL);
 		if (!new_pages) {
 			fw_load_abort(fw_priv);
 			return -ENOMEM;
@@ -1112,7 +1112,7 @@ static int _request_firmware_load(struct firmware_priv *fw_priv,
 		timeout = MAX_JIFFY_OFFSET;
 	}
 
-	timeout = wait_for_completion_interruptible_timeout(&buf->completion,
+	timeout = wait_for_completion_killable_timeout(&buf->completion,
 			timeout);
 	if (timeout == -ERESTARTSYS || !timeout) {
 		retval = timeout;

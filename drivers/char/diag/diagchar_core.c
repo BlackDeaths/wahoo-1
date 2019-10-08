@@ -166,7 +166,7 @@ static struct mutex apps_data_mutex;
 
 #define DIAGPKT_MAX_DELAYED_RSP 0xFFFF
 
-#ifdef DIAG_DEBUG
+#ifdef CONFIG_IPC_LOGGING
 uint16_t diag_debug_mask;
 void *diag_ipc_log;
 #endif
@@ -551,8 +551,8 @@ static int diag_remove_client_entry(struct file *file)
 static int diagchar_close(struct inode *inode, struct file *file)
 {
 	int ret;
-	DIAG_LOG(DIAG_DEBUG_USERSPACE, "diag: %s process exit with pid = %d\n",
-		current->comm, current->tgid);
+	DIAG_LOG(DIAG_DEBUG_USERSPACE, "diag: process exit %s\n",
+		current->comm);
 	ret = diag_remove_client_entry(file);
 	mutex_lock(&driver->diag_maskclear_mutex);
 	driver->mask_clear = 0;
@@ -1234,8 +1234,7 @@ static void diag_md_session_exit(void)
 			diag_log_mask_free(session_info->log_mask);
 			kfree(session_info->log_mask);
 			session_info->log_mask = NULL;
-			diag_msg_mask_free(session_info->msg_mask,
-				session_info);
+			diag_msg_mask_free(session_info->msg_mask);
 			kfree(session_info->msg_mask);
 			session_info->msg_mask = NULL;
 			diag_event_mask_free(session_info->event_mask);
@@ -1307,9 +1306,7 @@ int diag_md_session_create(int mode, int peripheral_mask, int proc)
 			 "return value of event copy. err %d\n", err);
 		goto fail_peripheral;
 	}
-	new_session->msg_mask_tbl_count = 0;
-	err = diag_msg_mask_copy(new_session, new_session->msg_mask,
-		&msg_mask);
+	err = diag_msg_mask_copy(new_session->msg_mask, &msg_mask);
 	if (err) {
 		DIAG_LOG(DIAG_DEBUG_USERSPACE,
 			 "return value of msg copy. err %d\n", err);
@@ -1345,8 +1342,7 @@ fail_peripheral:
 	diag_event_mask_free(new_session->event_mask);
 	kfree(new_session->event_mask);
 	new_session->event_mask = NULL;
-	diag_msg_mask_free(new_session->msg_mask,
-		new_session);
+	diag_msg_mask_free(new_session->msg_mask);
 	kfree(new_session->msg_mask);
 	new_session->msg_mask = NULL;
 	kfree(new_session);
@@ -1374,8 +1370,7 @@ static void diag_md_session_close(int pid)
 	diag_log_mask_free(session_info->log_mask);
 	kfree(session_info->log_mask);
 	session_info->log_mask = NULL;
-	diag_msg_mask_free(session_info->msg_mask,
-		session_info);
+	diag_msg_mask_free(session_info->msg_mask);
 	kfree(session_info->msg_mask);
 	session_info->msg_mask = NULL;
 	diag_event_mask_free(session_info->event_mask);
@@ -2043,7 +2038,7 @@ static int diag_cmd_register_tbl(struct diag_cmd_reg_tbl_t *reg_tbl)
 		return -EFAULT;
 	}
 
-	entries = kzalloc(count * entry_len, GFP_KERNEL);
+	entries = kcalloc(entry_len, count, GFP_KERNEL);
 	if (!entries) {
 		pr_err("diag: In %s, unable to create memory for registration table entries\n",
 		       __func__);
@@ -2897,16 +2892,6 @@ static int diag_user_process_apps_data(const char __user *buf, int len,
 	return 0;
 }
 
-static int check_data_ready(int index)
-{
-	int data_type = 0;
-
-	mutex_lock(&driver->diagchar_mutex);
-	data_type = driver->data_ready[index];
-	mutex_unlock(&driver->diagchar_mutex);
-	return data_type;
-}
-
 static ssize_t diagchar_read(struct file *file, char __user *buf, size_t count,
 			  loff_t *ppos)
 {
@@ -2918,14 +2903,10 @@ static ssize_t diagchar_read(struct file *file, char __user *buf, size_t count,
 	int exit_stat = 0;
 	int write_len = 0;
 	struct diag_md_session_t *session_info = NULL;
-	struct pid *pid_struct = NULL;
-	struct task_struct *task_s = NULL;
 
-	mutex_lock(&driver->diagchar_mutex);
 	for (i = 0; i < driver->num_clients; i++)
 		if (driver->client_map[i].pid == current->tgid)
 			index = i;
-	mutex_unlock(&driver->diagchar_mutex);
 
 	if (index == -1) {
 		pr_err("diag: Client PID not found in table");
@@ -2935,7 +2916,7 @@ static ssize_t diagchar_read(struct file *file, char __user *buf, size_t count,
 		pr_err("diag: bad address from user side\n");
 		return -EFAULT;
 	}
-	wait_event_interruptible(driver->wait_q, (check_data_ready(index)) > 0);
+	wait_event_interruptible(driver->wait_q, driver->data_ready[index]);
 
 	mutex_lock(&driver->diagchar_mutex);
 
@@ -3107,27 +3088,16 @@ static ssize_t diagchar_read(struct file *file, char __user *buf, size_t count,
 	}
 
 exit:
+	mutex_unlock(&driver->diagchar_mutex);
 	if (driver->data_ready[index] & DCI_DATA_TYPE) {
-		data_type = driver->data_ready[index] & DCI_DATA_TYPE;
-		mutex_unlock(&driver->diagchar_mutex);
-		/* Copy the type of data being passed */
 		mutex_lock(&driver->dci_mutex);
+		/* Copy the type of data being passed */
+		data_type = driver->data_ready[index] & DCI_DATA_TYPE;
 		list_for_each_safe(start, temp, &driver->dci_client_list) {
 			entry = list_entry(start, struct diag_dci_client_tbl,
 									track);
-			pid_struct = find_get_pid(entry->tgid);
-			if (!pid_struct)
+			if (entry->client->tgid != current->tgid)
 				continue;
-			task_s = get_pid_task(pid_struct, PIDTYPE_PID);
-			if (!task_s) {
-				DIAG_LOG(DIAG_DEBUG_DCI,
-				"diag: valid task doesn't exist for pid = %d\n",
-				entry->tgid);
-				continue;
-			}
-			if (task_s == entry->client)
-				if (entry->client->tgid != current->tgid)
-					continue;
 			if (!entry->in_service)
 				continue;
 			if (copy_to_user(buf + ret, &data_type, sizeof(int))) {
@@ -3154,7 +3124,6 @@ exit:
 		mutex_unlock(&driver->dci_mutex);
 		goto end;
 	}
-	mutex_unlock(&driver->diagchar_mutex);
 end:
 	/*
 	 * Flush any read that is currently pending on DCI data and
@@ -3430,7 +3399,7 @@ void diag_ws_release()
 		pm_relax(driver->diag_dev);
 }
 
-#ifdef DIAG_DEBUG
+#ifdef CONFIG_IPC_LOGGING
 static void diag_debug_init(void)
 {
 	diag_ipc_log = ipc_log_context_create(DIAG_IPC_LOG_PAGES, "diag", 0);

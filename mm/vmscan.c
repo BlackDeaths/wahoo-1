@@ -3332,7 +3332,6 @@ static int balance_pgdat(pg_data_t *pgdat, int order, int classzone_idx)
 		bool raise_priority = true;
 		unsigned long lru_pages = 0;
 
-		simple_lmk_decide_reclaim(sc.priority);
 		sc.nr_reclaimed = 0;
 
 		/*
@@ -3473,6 +3472,9 @@ static void kswapd_try_to_sleep(pg_data_t *pgdat, int order,
 {
 	long remaining = 0;
 	DEFINE_WAIT(wait);
+#ifdef CONFIG_ANDROID_SIMPLE_LMK
+	bool kswapd_slept = false;
+#endif
 
 	if (freezing(current) || kthread_should_stop())
 		return;
@@ -3482,7 +3484,11 @@ static void kswapd_try_to_sleep(pg_data_t *pgdat, int order,
 	/* Try to sleep for a short interval */
 	if (prepare_kswapd_sleep(pgdat, order, remaining,
 						balanced_classzone_idx)) {
+#ifdef CONFIG_ANDROID_SIMPLE_LMK
 		simple_lmk_stop_reclaim();
+		kswapd_slept = true;
+#endif
+
 		/*
 		 * Compaction records what page blocks it recently failed to
 		 * isolate pages from and skips them in the future scanning.
@@ -3508,7 +3514,6 @@ static void kswapd_try_to_sleep(pg_data_t *pgdat, int order,
 	 */
 	if (prepare_kswapd_sleep(pgdat, order, remaining,
 						balanced_classzone_idx)) {
-		simple_lmk_stop_reclaim();
 		trace_mm_vmscan_kswapd_sleep(pgdat->node_id);
 
 		/*
@@ -3526,6 +3531,11 @@ static void kswapd_try_to_sleep(pg_data_t *pgdat, int order,
 
 		set_pgdat_percpu_threshold(pgdat, calculate_pressure_threshold);
 	} else {
+#ifdef CONFIG_ANDROID_SIMPLE_LMK
+		/* Start reclaim when kswapd wakes and a wmark is hit quickly */
+		if (kswapd_slept)
+			simple_lmk_start_reclaim();
+#endif
 		if (remaining)
 			count_vm_event(KSWAPD_LOW_WMARK_HIT_QUICKLY);
 		else

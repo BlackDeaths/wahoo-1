@@ -1624,7 +1624,7 @@ int vt_do_diacrit(unsigned int cmd, void __user *udp, int perm)
 		struct kbdiacr *dia;
 		int i;
 
-		dia = kmalloc(MAX_DIACR * sizeof(struct kbdiacr),
+		dia = kmalloc_array(MAX_DIACR, sizeof(struct kbdiacr),
 								GFP_KERNEL);
 		if (!dia)
 			return -ENOMEM;
@@ -1657,7 +1657,7 @@ int vt_do_diacrit(unsigned int cmd, void __user *udp, int perm)
 		struct kbdiacrsuc __user *a = udp;
 		void *buf;
 
-		buf = kmalloc(MAX_DIACR * sizeof(struct kbdiacruc),
+		buf = kmalloc_array(MAX_DIACR, sizeof(struct kbdiacruc),
 								GFP_KERNEL);
 		if (buf == NULL)
 			return -ENOMEM;
@@ -1695,7 +1695,7 @@ int vt_do_diacrit(unsigned int cmd, void __user *udp, int perm)
 			return -EINVAL;
 
 		if (ct) {
-			dia = kmalloc(sizeof(struct kbdiacr) * ct,
+			dia = kmalloc_array(ct, sizeof(struct kbdiacr),
 								GFP_KERNEL);
 			if (!dia)
 				return -ENOMEM;
@@ -1738,7 +1738,7 @@ int vt_do_diacrit(unsigned int cmd, void __user *udp, int perm)
 			return -EINVAL;
 
 		if (ct) {
-			buf = kmalloc(ct * sizeof(struct kbdiacruc),
+			buf = kmalloc_array(ct, sizeof(struct kbdiacruc),
 								GFP_KERNEL);
 			if (buf == NULL)
 				return -ENOMEM;

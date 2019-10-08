@@ -46,6 +46,7 @@
 #include <linux/file.h>
 #include <linux/kthread.h>
 #include <linux/dma-buf.h>
+#include <linux/cpu_input_boost.h>
 #include <linux/devfreq_boost.h>
 #include <sync.h>
 #include <sw_sync.h>
@@ -86,8 +87,8 @@
 int backlight_min = 0;
 int backlight_max = 255;
 
-module_param(backlight_min, int, 0755);
-module_param(backlight_max, int, 0755);
+module_param(backlight_min, int, 0644);
+module_param(backlight_max, int, 0644);
 
 #define MDSS_BRIGHT_TO_BL_DIM(out, v) do {\
 			out = (12*v*v+1393*v+3060)/4465;\
@@ -1228,8 +1229,8 @@ static int mdss_fb_init_panel_modes(struct msm_fb_data_type *mfd,
 	list_for_each(pos, &pdata->timings_list)
 		num_timings++;
 
-	modedb = devm_kzalloc(fbi->dev, num_timings * sizeof(*modedb),
-			GFP_KERNEL);
+	modedb = devm_kcalloc(fbi->dev, num_timings, sizeof(*modedb),
+			      GFP_KERNEL);
 	if (!modedb)
 		return -ENOMEM;
 
@@ -1789,7 +1790,7 @@ void mdss_fb_set_backlight(struct msm_fb_data_type *mfd, u32 bkl_lvl)
 		} else {
 			if (mfd->bl_level != bkl_lvl)
 				bl_notify_needed = true;
-			pr_debug("backlight sent to panel :%d\n", temp);
+			pr_info("backlight sent to panel :%d\n", temp);
 			pdata->set_backlight(pdata, temp);
 			mfd->bl_level = bkl_lvl;
 			mfd->bl_level_scaled = temp;
@@ -3053,10 +3054,8 @@ static int __mdss_fb_wait_for_fence_sub(struct msm_sync_pt_data *sync_pt_data,
 				wait_ms = min_t(long, WAIT_FENCE_FINAL_TIMEOUT,
 						wait_ms);
 
-#ifdef CONFIG_SYNC_DEBUG
 			pr_warn("%s: sync_fence_wait timed out! ",
 					fences[i]->name);
-#endif
 			pr_cont("Waiting %ld.%ld more seconds\n",
 				(wait_ms/MSEC_PER_SEC), (wait_ms%MSEC_PER_SEC));
 
@@ -3791,8 +3790,11 @@ skip_commit:
 	if (IS_ERR_VALUE(ret) || !sync_pt_data->flushed) {
 		mdss_fb_release_kickoff(mfd);
 		mdss_fb_signal_timeline(sync_pt_data);
-	}
 
+		if ((mfd->panel.type == MIPI_CMD_PANEL) &&
+			(mfd->mdp.signal_retire_fence))
+			mfd->mdp.signal_retire_fence(mfd, 1);
+	}
 	if (dynamic_dsi_switch) {
 		MDSS_XLOG(mfd->index, mfd->split_mode, new_dsi_mode,
 			XLOG_FUNC_EXIT);
@@ -3826,7 +3828,7 @@ static int __mdss_fb_display_thread(void *data)
 				mfd->index);
 
 	while (1) {
-		wait_event(mfd->commit_wait_q,
+		wait_event_interruptible(mfd->commit_wait_q,
 				(atomic_read(&mfd->commits_pending) ||
 				 kthread_should_stop()));
 
@@ -4601,63 +4603,96 @@ err:
 }
 
 static int __mdss_fb_copy_destscaler_data(struct fb_info *info,
-		struct mdp_layer_commit *commit,
-		struct mdp_destination_scaler_data *ds_data,
-		struct mdp_scale_data_v2 *scale_data)
+		struct mdp_layer_commit *commit)
 {
 	int    i = 0;
 	int    ret = 0;
+	u32    data_size;
 	struct mdp_destination_scaler_data __user *ds_data_user;
+	struct mdp_destination_scaler_data *ds_data = NULL;
 	void __user *scale_data_user;
+	struct mdp_scale_data_v2 *scale_data = NULL;
 	struct msm_fb_data_type *mfd = (struct msm_fb_data_type *)info->par;
 	struct mdss_data_type *mdata;
 
 	if (!mfd || !mfd->mdp.private1) {
 		pr_err("mfd is NULL or operation not permitted\n");
-		return -EINVAL;
+		ret = -EINVAL;
+		goto err;
 	}
 
 	mdata = mfd_to_mdata(mfd);
 	if (!mdata) {
 		pr_err("mdata is NULL or not initialized\n");
-		return -EINVAL;
+		ret = -EINVAL;
+		goto err;
 	}
 
 	if (commit->commit_v1.dest_scaler_cnt >
 			mdata->scaler_off->ndest_scalers) {
 		pr_err("Commit destination scaler cnt larger than HW setting, commit cnt=%d\n",
 				commit->commit_v1.dest_scaler_cnt);
-		return -EINVAL;
+		ret = -EINVAL;
+		goto err;
 	}
 
 	ds_data_user = (struct mdp_destination_scaler_data *)
 		commit->commit_v1.dest_scaler;
-	ret = copy_from_user(ds_data, ds_data_user,
-		commit->commit_v1.dest_scaler_cnt * sizeof(*ds_data));
+	data_size = commit->commit_v1.dest_scaler_cnt *
+		sizeof(struct mdp_destination_scaler_data);
+	ds_data = kzalloc(data_size, GFP_KERNEL);
+	if (!ds_data) {
+		ret = -ENOMEM;
+		goto err;
+	}
+
+	ret = copy_from_user(ds_data, ds_data_user, data_size);
 	if (ret) {
 		pr_err("dest scaler data copy from user failed\n");
-		return ret;
+		goto err;
 	}
 
 	commit->commit_v1.dest_scaler = ds_data;
 
 	for (i = 0; i < commit->commit_v1.dest_scaler_cnt; i++) {
-		if (!ds_data[i].scale)
-			continue;
+		scale_data = NULL;
 
-		scale_data_user = to_user_ptr(ds_data[i].scale);
-		ds_data[i].scale = to_user_u64(&scale_data[i]);
-		if (ds_data[i].flags & (MDP_DESTSCALER_SCALE_UPDATE |
-					MDP_DESTSCALER_ENHANCER_UPDATE)) {
-			ret = copy_from_user(scale_data + i, scale_data_user,
-					     sizeof(*scale_data));
+		if (ds_data[i].scale) {
+			scale_data_user = to_user_ptr(ds_data[i].scale);
+			data_size = sizeof(struct mdp_scale_data_v2);
+
+			scale_data = kzalloc(data_size, GFP_KERNEL);
+			if (!scale_data) {
+				ds_data[i].scale = 0;
+				ret = -ENOMEM;
+				goto err;
+			}
+
+			ds_data[i].scale = to_user_u64(scale_data);
+		}
+
+		if (scale_data && (ds_data[i].flags &
+					(MDP_DESTSCALER_SCALE_UPDATE |
+					MDP_DESTSCALER_ENHANCER_UPDATE))) {
+			ret = copy_from_user(scale_data, scale_data_user,
+					data_size);
 			if (ret) {
 				pr_err("scale data copy from user failed\n");
-				return ret;
+				kfree(scale_data);
+				goto err;
 			}
-		} else {
-			memset(scale_data + i, 0, sizeof(*scale_data));
 		}
+	}
+
+	return ret;
+
+err:
+	if (ds_data) {
+		for (i--; i >= 0; i--) {
+			scale_data = to_user_ptr(ds_data[i].scale);
+			kfree(scale_data);
+		}
+		kfree(ds_data);
 	}
 
 	return ret;
@@ -4669,13 +4704,12 @@ static int mdss_fb_atomic_commit_ioctl(struct fb_info *info,
 	int ret, i = 0, j = 0, rc;
 	struct mdp_layer_commit  commit;
 	u32 buffer_size, layer_count;
-	struct mdp_input_layer *layer, layer_list[MAX_LAYER_COUNT];
+	struct mdp_input_layer *layer, *layer_list = NULL;
 	struct mdp_input_layer __user *input_layer_list;
-	struct mdp_output_layer output_layer;
+	struct mdp_output_layer *output_layer = NULL;
 	struct mdp_output_layer __user *output_layer_user;
+	struct mdp_destination_scaler_data *ds_data = NULL;
 	struct mdp_destination_scaler_data __user *ds_data_user;
-	struct mdp_destination_scaler_data ds_data[2];
-	struct mdp_scale_data_v2 scale_data[2];
 
 	ret = copy_from_user(&commit, argp, sizeof(struct mdp_layer_commit));
 	if (ret) {
@@ -4685,13 +4719,20 @@ static int mdss_fb_atomic_commit_ioctl(struct fb_info *info,
 
 	output_layer_user = commit.commit_v1.output_layer;
 	if (output_layer_user) {
-		ret = copy_from_user(&output_layer, output_layer_user,
-				     sizeof(output_layer));
+		buffer_size = sizeof(struct mdp_output_layer);
+		output_layer = kzalloc(buffer_size, GFP_KERNEL);
+		if (!output_layer) {
+			pr_err("unable to allocate memory for output layer\n");
+			return -ENOMEM;
+		}
+
+		ret = copy_from_user(output_layer,
+			output_layer_user, buffer_size);
 		if (ret) {
 			pr_err("layer list copy from user failed\n");
 			goto err;
 		}
-		commit.commit_v1.output_layer = &output_layer;
+		commit.commit_v1.output_layer = output_layer;
 	}
 
 	layer_count = commit.commit_v1.input_layer_cnt;
@@ -4702,6 +4743,13 @@ static int mdss_fb_atomic_commit_ioctl(struct fb_info *info,
 		goto err;
 	} else if (layer_count) {
 		buffer_size = sizeof(struct mdp_input_layer) * layer_count;
+		layer_list = kzalloc(buffer_size, GFP_KERNEL);
+		if (!layer_list) {
+			pr_err("unable to allocate memory for layers\n");
+			ret = -ENOMEM;
+			goto err;
+		}
+
 		ret = copy_from_user(layer_list, input_layer_list, buffer_size);
 		if (ret) {
 			pr_err("layer list copy from user failed\n");
@@ -4742,12 +4790,12 @@ static int mdss_fb_atomic_commit_ioctl(struct fb_info *info,
 	ds_data_user = commit.commit_v1.dest_scaler;
 	if ((ds_data_user) &&
 		(commit.commit_v1.dest_scaler_cnt)) {
-		ret = __mdss_fb_copy_destscaler_data(info, &commit, ds_data,
-						     scale_data);
+		ret = __mdss_fb_copy_destscaler_data(info, &commit);
 		if (ret) {
 			pr_err("copy dest scaler failed\n");
 			goto err;
 		}
+		ds_data = commit.commit_v1.dest_scaler;
 	}
 
 	ATRACE_BEGIN("ATOMIC_COMMIT");
@@ -4777,7 +4825,7 @@ static int mdss_fb_atomic_commit_ioctl(struct fb_info *info,
 
 	if (output_layer_user) {
 		rc = copy_to_user(&output_layer_user->buffer.fence,
-			&output_layer.buffer.fence,
+			&output_layer->buffer.fence,
 			sizeof(int));
 
 		if (rc)
@@ -4789,6 +4837,13 @@ err:
 		kfree(layer_list[i].scale);
 		layer_list[i].scale = NULL;
 		mdss_mdp_free_layer_pp_info(&layer_list[i]);
+	}
+	kfree(layer_list);
+	kfree(output_layer);
+	if (ds_data) {
+		for (i = 0; i < commit.commit_v1.dest_scaler_cnt; i++)
+			kfree(to_user_ptr(ds_data[i].scale));
+		kfree(ds_data);
 	}
 
 	return ret;
@@ -4921,6 +4976,15 @@ static int __ioctl_wait_idle(struct msm_fb_data_type *mfd, u32 cmd)
 	return ret;
 }
 
+static bool check_not_supported_ioctl(u32 cmd)
+{
+	return((cmd == MSMFB_OVERLAY_SET) || (cmd == MSMFB_OVERLAY_UNSET) ||
+		(cmd == MSMFB_OVERLAY_GET) || (cmd == MSMFB_OVERLAY_PREPARE) ||
+		(cmd == MSMFB_DISPLAY_COMMIT) || (cmd == MSMFB_OVERLAY_PLAY) ||
+		(cmd == MSMFB_BUFFER_SYNC) || (cmd == MSMFB_OVERLAY_QUEUE) ||
+		(cmd == MSMFB_NOTIFY_UPDATE));
+}
+
 /*
  * mdss_fb_do_ioctl() - MDSS Framebuffer ioctl function
  * @info:	pointer to framebuffer info
@@ -4954,6 +5018,11 @@ int mdss_fb_do_ioctl(struct fb_info *info, unsigned int cmd,
 	pdata = dev_get_platdata(&mfd->pdev->dev);
 	if (!pdata || pdata->panel_info.dynamic_switch_pending)
 		return -EPERM;
+
+	if (check_not_supported_ioctl(cmd)) {
+		pr_err("Unsupported ioctl\n");
+		return -EINVAL;
+	}
 
 	atomic_inc(&mfd->ioctl_ref_cnt);
 
@@ -5008,6 +5077,7 @@ int mdss_fb_do_ioctl(struct fb_info *info, unsigned int cmd,
 		ret = mdss_fb_mode_switch(mfd, dsi_mode);
 		break;
 	case MSMFB_ATOMIC_COMMIT:
+		cpu_input_boost_kick();
 		devfreq_boost_kick(DEVFREQ_MSM_CPUBW);
 		ret = mdss_fb_atomic_commit_ioctl(info, argp, file);
 		break;

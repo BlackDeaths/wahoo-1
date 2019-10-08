@@ -244,7 +244,8 @@ static int mlx4_ib_add_gid(struct ib_device *device,
 		ctx->refcount++;
 	}
 	if (!ret && hw_update) {
-		gids = kmalloc(sizeof(*gids) * MLX4_MAX_PORT_GIDS, GFP_ATOMIC);
+		gids = kmalloc_array(MLX4_MAX_PORT_GIDS, sizeof(*gids),
+				     GFP_ATOMIC);
 		if (!gids) {
 			ret = -ENOMEM;
 		} else {
@@ -297,7 +298,8 @@ static int mlx4_ib_del_gid(struct ib_device *device,
 	if (!ret && hw_update) {
 		int i;
 
-		gids = kmalloc(sizeof(*gids) * MLX4_MAX_PORT_GIDS, GFP_ATOMIC);
+		gids = kmalloc_array(MLX4_MAX_PORT_GIDS, sizeof(*gids),
+				     GFP_ATOMIC);
 		if (!gids) {
 			ret = -ENOMEM;
 		} else {
@@ -1042,8 +1044,6 @@ static void mlx4_ib_disassociate_ucontext(struct ib_ucontext *ibcontext)
 	 * mlx4_ib_vma_close().
 	 */
 	down_write(&owning_mm->mmap_sem);
-	if (!mmget_still_valid(owning_mm))
-		goto skip_mm;
 	for (i = 0; i < HW_BAR_COUNT; i++) {
 		vma = context->hw_bar_info[i].vma;
 		if (!vma)
@@ -1063,7 +1063,6 @@ static void mlx4_ib_disassociate_ucontext(struct ib_ucontext *ibcontext)
 		context->hw_bar_info[i].vma->vm_ops = NULL;
 	}
 
-skip_mm:
 	up_write(&owning_mm->mmap_sem);
 	mmput(owning_mm);
 	put_task_struct(owning_process);
@@ -2399,9 +2398,9 @@ static void *mlx4_ib_add(struct mlx4_dev *dev)
 			goto err_counter;
 
 		ibdev->ib_uc_qpns_bitmap =
-			kmalloc(BITS_TO_LONGS(ibdev->steer_qpn_count) *
-				sizeof(long),
-				GFP_KERNEL);
+			kmalloc_array(BITS_TO_LONGS(ibdev->steer_qpn_count),
+				      sizeof(long),
+				      GFP_KERNEL);
 		if (!ibdev->ib_uc_qpns_bitmap) {
 			dev_err(&dev->persist->pdev->dev,
 				"bit map alloc failed\n");

@@ -81,6 +81,7 @@ struct mdss_mdp_cmd_ctx {
 	struct work_struct gate_clk_work;
 	struct delayed_work delayed_off_clk_work;
 	struct work_struct pp_done_work;
+	struct workqueue_struct *early_wakeup_clk_wq;
 	struct work_struct early_wakeup_clk_work;
 	atomic_t pp_done_cnt;
 	struct completion rdptr_done;
@@ -405,7 +406,7 @@ static void mdss_mdp_cmd_wait4_autorefresh_pp(struct mdss_mdp_ctl *ctl)
 		return;
 	}
 
-	if (line_out < ctl->mixer_left->roi.h) {
+	if ((line_out < ctl->mixer_left->roi.h) && (line_out)) {
 		reinit_completion(&ctx->autorefresh_ppdone);
 
 		/* enable ping pong done */
@@ -2523,6 +2524,7 @@ int mdss_mdp_cmd_set_autorefresh_mode(struct mdss_mdp_ctl *mctl, int frame_cnt)
 		 */
 		ctx->autorefresh_state = MDP_AUTOREFRESH_ON_REQUESTED;
 		ctx->autorefresh_frame_cnt = frame_cnt;
+		mctl->mdata->serialize_wait4pp = true;
 
 		/* Cancel GATE Work Item */
 		if (cancel_work_sync(&ctx->gate_clk_work))
@@ -2536,8 +2538,10 @@ int mdss_mdp_cmd_set_autorefresh_mode(struct mdss_mdp_ctl *mctl, int frame_cnt)
 		if (frame_cnt == 0) {
 			ctx->autorefresh_state = MDP_AUTOREFRESH_OFF;
 			ctx->autorefresh_frame_cnt = 0;
+			mctl->mdata->serialize_wait4pp = false;
 		} else {
 			ctx->autorefresh_frame_cnt = frame_cnt;
+			mctl->mdata->serialize_wait4pp = true;
 		}
 		break;
 	case MDP_AUTOREFRESH_ON:
@@ -2549,6 +2553,7 @@ int mdss_mdp_cmd_set_autorefresh_mode(struct mdss_mdp_ctl *mctl, int frame_cnt)
 			ctx->autorefresh_state = MDP_AUTOREFRESH_OFF_REQUESTED;
 		} else {
 			ctx->autorefresh_frame_cnt = frame_cnt;
+			mctl->mdata->serialize_wait4pp = true;
 		}
 		break;
 	case MDP_AUTOREFRESH_OFF_REQUESTED:
@@ -2558,6 +2563,7 @@ int mdss_mdp_cmd_set_autorefresh_mode(struct mdss_mdp_ctl *mctl, int frame_cnt)
 			pr_debug("cancelling autorefresh off request\n");
 			ctx->autorefresh_state = MDP_AUTOREFRESH_ON;
 			ctx->autorefresh_frame_cnt = frame_cnt;
+			mctl->mdata->serialize_wait4pp = true;
 		}
 		break;
 	default:
@@ -2886,6 +2892,7 @@ static int mdss_mdp_disable_autorefresh(struct mdss_mdp_ctl *ctl,
 	cfg |= BIT(20);
 	mdss_mdp_pingpong_write(pp_base,
 				MDSS_MDP_REG_PP_SYNC_CONFIG_VSYNC, cfg);
+	ctl->mdata->serialize_wait4pp = false;
 
 	return 0;
 }
@@ -3592,7 +3599,9 @@ static int mdss_mdp_cmd_early_wake_up(struct mdss_mdp_ctl *ctl)
 	 * Only schedule if the interface has not been stopped.
 	 */
 	if (ctx && !ctx->intf_stopped)
-		schedule_work(&ctx->early_wakeup_clk_work);
+		queue_work(ctx->early_wakeup_clk_wq,
+			&ctx->early_wakeup_clk_work);
+
 	return 0;
 }
 
@@ -3615,6 +3624,8 @@ static int mdss_mdp_cmd_ctx_setup(struct mdss_mdp_ctl *ctl,
 	ctx->aux_pp_num = aux_pp_num;
 	ctx->pingpong_split_slave = pingpong_split_slave;
 	ctx->pp_timeout_report_cnt = 0;
+	ctx->early_wakeup_clk_wq
+		= alloc_workqueue("early_wakeup_clk_wq", WQ_HIGHPRI, 0);
 	init_waitqueue_head(&ctx->pp_waitq);
 	init_waitqueue_head(&ctx->rdptr_waitq);
 	init_completion(&ctx->stop_comp);
@@ -3891,12 +3902,24 @@ static int mdss_mdp_cmd_reconfigure(struct mdss_mdp_ctl *ctl,
 				}
 				ctl->switch_with_handoff = false;
 			}
+			/*
+			 * keep track of vsync, so it can be enabled as part
+			 * of the post switch sequence
+			 */
+			if (ctl->vsync_handler.enabled)
+				ctl->need_vsync_on = true;
 
 			mdss_mdp_ctl_stop(ctl, MDSS_PANEL_POWER_OFF);
 			mdss_mdp_ctl_intf_event(ctl,
 				MDSS_EVENT_DSI_DYNAMIC_SWITCH,
 				(void *) mode, CTL_INTF_EVENT_FLAG_DEFAULT);
 		} else {
+			if (ctl->need_vsync_on &&
+					ctl->ops.add_vsync_handler) {
+				ctl->ops.add_vsync_handler(ctl,
+						&ctl->vsync_handler);
+				ctl->need_vsync_on = false;
+			}
 			mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_OFF);
 		}
 	}

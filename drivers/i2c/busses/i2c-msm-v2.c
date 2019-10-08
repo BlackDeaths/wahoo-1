@@ -38,6 +38,9 @@
 #include <linux/msm-bus.h>
 #include <linux/msm-bus-board.h>
 #include <linux/i2c/i2c-msm-v2.h>
+#ifdef CONFIG_WAKE_GESTURES
+#include <linux/wake_gestures.h>
+#endif
 
 #ifdef DEBUG
 static const enum msm_i2_debug_level DEFAULT_DBG_LVL = MSM_DBG;
@@ -1200,7 +1203,7 @@ static int i2c_msm_dma_xfer_process(struct i2c_msm_ctrl *ctrl)
 		return ret;
 	}
 
-	sg_tx = kzalloc(sizeof(struct scatterlist) * tx->desc_cnt_cur,
+	sg_tx = kcalloc(tx->desc_cnt_cur, sizeof(struct scatterlist),
 								GFP_KERNEL);
 	if (!sg_tx) {
 		ret = -ENOMEM;
@@ -1209,7 +1212,7 @@ static int i2c_msm_dma_xfer_process(struct i2c_msm_ctrl *ctrl)
 	sg_init_table(sg_tx, tx->desc_cnt_cur);
 	sg_tx_itr = sg_tx;
 
-	sg_rx = kzalloc(sizeof(struct scatterlist) * rx->desc_cnt_cur,
+	sg_rx = kcalloc(rx->desc_cnt_cur, sizeof(struct scatterlist),
 								GFP_KERNEL);
 	if (!sg_rx) {
 		ret = -ENOMEM;
@@ -1586,14 +1589,14 @@ static int i2c_msm_clk_path_init_structs(struct i2c_msm_ctrl *ctrl)
 
 	i2c_msm_dbg(ctrl, MSM_PROF, "initializes path clock voting structs");
 
-	paths = devm_kzalloc(ctrl->dev, sizeof(*paths) * 2, GFP_KERNEL);
+	paths = devm_kcalloc(ctrl->dev, 2, sizeof(*paths), GFP_KERNEL);
 	if (!paths) {
 		dev_err(ctrl->dev,
 			"error msm_bus_paths.paths memory allocation failed\n");
 		return -ENOMEM;
 	}
 
-	usecases = devm_kzalloc(ctrl->dev, sizeof(*usecases) * 2, GFP_KERNEL);
+	usecases = devm_kcalloc(ctrl->dev, 2, sizeof(*usecases), GFP_KERNEL);
 	if (!usecases) {
 		dev_err(ctrl->dev,
 		"error  msm_bus_scale_pdata.usecases memory allocation failed\n");
@@ -2771,6 +2774,11 @@ static int i2c_msm_pm_sys_suspend_noirq(struct device *dev)
 	mutex_unlock(&ctrl->xfer.mtx);
 	i2c_msm_dbg(ctrl, MSM_DBG, "pm_sys_noirq: suspending...");
 
+#ifdef CONFIG_WAKE_GESTURES
+	if (wg_switch)
+		return ret;
+#endif
+
 	if (prev_state == I2C_MSM_PM_RT_ACTIVE) {
 		i2c_msm_pm_suspend(dev);
 		/*
@@ -2861,7 +2869,7 @@ static const struct i2c_algorithm i2c_msm_frmwrk_algrtm = {
 	.functionality	= i2c_msm_frmwrk_func,
 };
 
-static const char const *i2c_msm_adapter_name = "MSM-I2C-v2-adapter";
+static const char *i2c_msm_adapter_name = "MSM-I2C-v2-adapter";
 
 static int i2c_msm_frmwrk_reg(struct platform_device *pdev,
 						struct i2c_msm_ctrl *ctrl)

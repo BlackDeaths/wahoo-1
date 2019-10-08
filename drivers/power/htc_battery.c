@@ -22,9 +22,9 @@
 #include <linux/qpnp/qpnp-adc.h>
 #include <linux/reboot.h>
 #include <linux/rtc.h>
-#include <linux/wahoo_info.h>
 #include <linux/wakelock.h>
 #include <linux/workqueue.h>
+#include <linux/wahoo_info.h>
 
 #define HTC_BATT_NAME "htc_battery"
 
@@ -52,6 +52,7 @@ static int charge_start_level = DEFAULT_CHARGE_START_LEVEL;
 		else \
 			pr_debug("[BATT] " x); \
 	} while (0)
+#endif
 
 #define BATT_ERR(x...) do { \
 	struct timespec _ts; \
@@ -65,6 +66,7 @@ static int charge_start_level = DEFAULT_CHARGE_START_LEVEL;
 	       _tm.tm_hour, _tm.tm_min, _tm.tm_sec, _ts.tv_nsec); \
 	} while (0)
 
+#ifdef HTC_BATT_DEBUG
 #define BATT_EMBEDDED(x...) do { \
 	struct timespec _ts; \
 	struct rtc_time _tm; \
@@ -76,10 +78,11 @@ static int charge_start_level = DEFAULT_CHARGE_START_LEVEL;
 	       _tm.tm_hour, _tm.tm_min, _tm.tm_sec, _ts.tv_nsec); \
 	pr_info("[BATT] :" x); \
 } while (0)
-#else
+#endif
+
+#ifndef HTC_BATT_DEBUG
 #define BATT_LOG(x...) do {} while (0)
 #define BATT_DEBUG(x...) do {} while (0)
-#define BATT_ERR(x...) do {} while (0)
 #define BATT_EMBEDDED(x...) do {} while (0)
 #endif
 
@@ -910,11 +913,9 @@ static int htc_battery_probe_process(void)
 		htc_batt_info.rep.batt_id = BATT_ID_UNKNOWN;
 	} else {
 		if (!strncmp(ret.strval,
-			     LOADING_BATT_TYPE, sizeof(LOADING_BATT_TYPE))) {
-			BATT_ERR(
-			    "Unable to read battery-type, profile loading\n");
-			htc_batt_info.rep.batt_id = BATT_ID_UNKNOWN;
-		} else if ((!strncmp(ret.strval,
+			     LOADING_BATT_TYPE, sizeof(LOADING_BATT_TYPE)))
+			return -EPROBE_DEFER;
+		else if ((!strncmp(ret.strval,
 				   WALLEYE_BATT_ID_1,
 				   sizeof(WALLEYE_BATT_ID_1))) ||
 			 (!strncmp(ret.strval,
@@ -1050,6 +1051,14 @@ static int htc_battery_probe(struct platform_device *pdev)
 {
 	int rc = 0;
 
+#ifndef MODULE
+	if (is_google_taimen()) {
+		BATT_ERR("%s: This is not the Pixel 2, bailing out...\n",
+			  __func__);
+		return -ENODEV;
+	}
+#endif
+
 	mutex_lock(&htc_battery_lock);
 
 	rc = htc_battery_probe_process();
@@ -1110,9 +1119,6 @@ static struct platform_driver htc_battery_driver = {
 static int __init htc_battery_init(void)
 {
 	int ret;
-
-	if (!is_google_walleye())
-		return -ENODEV;
 
 	wake_lock_init(&htc_batt_info.charger_exist_lock,
 		       WAKE_LOCK_SUSPEND, "charger_exist_lock");

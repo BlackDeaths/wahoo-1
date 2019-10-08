@@ -1437,6 +1437,7 @@ int wma_unified_radio_tx_mem_free(void *handle)
 	rs_results = (tSirWifiRadioStat *)
 				&wma_handle->link_stats_results->results[0];
 	for (i = 0; i < wma_handle->link_stats_results->num_radio; i++) {
+		rs_results += i;
 		if (rs_results->tx_time_per_power_level) {
 			qdf_mem_free(rs_results->tx_time_per_power_level);
 			rs_results->tx_time_per_power_level = NULL;
@@ -1446,7 +1447,6 @@ int wma_unified_radio_tx_mem_free(void *handle)
 			qdf_mem_free(rs_results->channels);
 			rs_results->channels = NULL;
 		}
-		rs_results++;
 	}
 
 	qdf_mem_free(wma_handle->link_stats_results);
@@ -1540,32 +1540,9 @@ static int wma_unified_radio_tx_power_level_stats_event_handler(void *handle,
 		return -EINVAL;
 	}
 
-	if (fixed_param->radio_id >= link_stats_results->num_radio) {
-		WMA_LOGE("%s: Invalid radio_id %d num_radio %d",
-			 __func__, fixed_param->radio_id,
-			 link_stats_results->num_radio);
-		return -EINVAL;
-	}
-
-	if (fixed_param->total_num_tx_power_levels >
-	    max_total_num_tx_power_levels) {
-		WMA_LOGD("Invalid total_num_tx_power_levels %d",
-			 fixed_param->total_num_tx_power_levels);
-		return -EINVAL;
-	}
-
 	rs_results = (tSirWifiRadioStat *) &link_stats_results->results[0] +
 							 fixed_param->radio_id;
 	tx_power_level_values = (uint8_t *) param_tlvs->tx_time_per_power_level;
-
-	if (rs_results->total_num_tx_power_levels &&
-	    fixed_param->total_num_tx_power_levels >
-		rs_results->total_num_tx_power_levels) {
-		WMA_LOGE("%s: excess tx_power buffers:%d, total_num_tx_power_levels:%d",
-			 __func__, fixed_param->total_num_tx_power_levels,
-			 rs_results->total_num_tx_power_levels);
-		return -EINVAL;
-	}
 
 	rs_results->total_num_tx_power_levels =
 				fixed_param->total_num_tx_power_levels;

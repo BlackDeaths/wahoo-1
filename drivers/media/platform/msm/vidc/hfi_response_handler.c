@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2016,2019 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -228,10 +228,8 @@ static int hfi_process_sess_evt_seq_changed(u32 device_id,
 		} while (num_properties_changed > 0);
 	}
 
-	*info = (struct msm_vidc_cb_info) {
-		.response_type =  HAL_SESSION_EVENT_CHANGE,
-		.response.event = event_notify,
-	};
+	info->response_type = HAL_SESSION_EVENT_CHANGE;
+	info->response.event = event_notify;
 
 	return 0;
 }
@@ -262,10 +260,8 @@ static int hfi_process_evt_release_buffer_ref(u32 device_id,
 	event_notify.packet_buffer = data->packet_buffer;
 	event_notify.extra_data_buffer = data->extra_data_buffer;
 
-	*info = (struct msm_vidc_cb_info) {
-		.response_type =  HAL_SESSION_EVENT_CHANGE,
-		.response.event = event_notify,
-	};
+	info->response_type = HAL_SESSION_EVENT_CHANGE;
+	info->response.event = event_notify;
 
 	return 0;
 }
@@ -275,10 +271,8 @@ static int hfi_process_sys_error(u32 device_id, struct msm_vidc_cb_info *info)
 	struct msm_vidc_cb_cmd_done cmd_done = {0};
 	cmd_done.device_id = device_id;
 
-	*info = (struct msm_vidc_cb_info) {
-		.response_type =  HAL_SYS_ERROR,
-		.response.cmd = cmd_done,
-	};
+	info->response_type = HAL_SYS_ERROR;
+	info->response.cmd = cmd_done;
 
 	return 0;
 }
@@ -300,17 +294,13 @@ static int hfi_process_session_error(u32 device_id,
 	case HFI_ERR_SESSION_UPSCALE_NOT_SUPPORTED:
 		cmd_done.status = VIDC_ERR_NONE;
 		dprintk(VIDC_INFO, "Non Fatal: HFI_EVENT_SESSION_ERROR\n");
-		*info = (struct msm_vidc_cb_info) {
-			.response_type =  HAL_RESPONSE_UNUSED,
-			.response.cmd = cmd_done,
-		};
+		info->response_type = HAL_RESPONSE_UNUSED;
+		info->response.cmd = cmd_done;
 		return 0;
 	default:
 		dprintk(VIDC_ERR, "HFI_EVENT_SESSION_ERROR\n");
-		*info = (struct msm_vidc_cb_info) {
-			.response_type =  HAL_SESSION_ERROR,
-			.response.cmd = cmd_done,
-		};
+		info->response_type = HAL_SESSION_ERROR;
+		info->response.cmd = cmd_done;
 		return 0;
 	}
 }
@@ -388,10 +378,10 @@ err_no_prop:
 	cmd_done.session_id = NULL;
 	cmd_done.status = (u32)status;
 	cmd_done.size = sizeof(struct vidc_hal_sys_init_done);
-	*info = (struct msm_vidc_cb_info) {
-		.response_type =  HAL_SYS_INIT_DONE,
-		.response.cmd = cmd_done,
-	};
+
+	info->response_type = HAL_SYS_INIT_DONE;
+	info->response.cmd = cmd_done;
+
 	return 0;
 }
 
@@ -417,10 +407,8 @@ static int hfi_process_sys_rel_resource_done(u32 device_id,
 	cmd_done.status = (u32) status;
 	cmd_done.size = 0;
 
-	*info = (struct msm_vidc_cb_info) {
-		.response_type =  HAL_SYS_RELEASE_RESOURCE_DONE,
-		.response.cmd = cmd_done,
-	};
+	info->response_type = HAL_SYS_RELEASE_RESOURCE_DONE;
+	info->response.cmd = cmd_done;
 
 	return 0;
 }
@@ -603,11 +591,6 @@ static int hfi_fill_codec_info(u8 *data_ptr,
 				vidc_get_hal_codec((1 << i) & codecs);
 			capability->domain =
 				vidc_get_hal_domain(HFI_VIDEO_DOMAIN_DECODER);
-			if (codec_count == VIDC_MAX_DECODE_SESSIONS) {
-				dprintk(VIDC_ERR,
-					"Max supported decoder sessions reached");
-				break;
-			}
 		}
 	}
 	codecs = sys_init_done->enc_codec_supported;
@@ -619,11 +602,6 @@ static int hfi_fill_codec_info(u8 *data_ptr,
 				vidc_get_hal_codec((1 << i) & codecs);
 			capability->domain =
 				vidc_get_hal_domain(HFI_VIDEO_DOMAIN_ENCODER);
-			if (codec_count == VIDC_MAX_SESSIONS) {
-				dprintk(VIDC_ERR,
-					"Max supported sessions reached");
-				break;
-			}
 		}
 	}
 	sys_init_done->codec_count = codec_count;
@@ -1251,10 +1229,8 @@ static int hfi_process_session_prop_info(u32 device_id,
 		cmd_done.data.property.buf_req = buff_req;
 		cmd_done.size = sizeof(buff_req);
 
-		*info = (struct msm_vidc_cb_info) {
-			.response_type =  HAL_SESSION_PROPERTY_INFO,
-			.response.cmd = cmd_done,
-		};
+		info->response_type = HAL_SESSION_PROPERTY_INFO;
+		info->response.cmd = cmd_done;
 
 		return 0;
 	case HFI_PROPERTY_PARAM_PROFILE_LEVEL_CURRENT:
@@ -1321,10 +1297,8 @@ static int hfi_process_session_init_done(u32 device_id,
 	cmd_done.data.session_init_done = session_init_done;
 	cmd_done.size = sizeof(struct vidc_hal_session_init_done);
 
-	*info = (struct msm_vidc_cb_info) {
-		.response_type =  HAL_SESSION_INIT_DONE,
-		.response.cmd = cmd_done,
-	};
+	info->response_type = HAL_SESSION_INIT_DONE;
+	info->response.cmd = cmd_done;
 
 	return 0;
 }
@@ -1350,10 +1324,8 @@ static int hfi_process_session_load_res_done(u32 device_id,
 	cmd_done.status = hfi_map_err_status(pkt->error_type);
 	cmd_done.size = 0;
 
-	*info = (struct msm_vidc_cb_info) {
-		.response_type =  HAL_SESSION_LOAD_RESOURCE_DONE,
-		.response.cmd = cmd_done,
-	};
+	info->response_type = HAL_SESSION_LOAD_RESOURCE_DONE;
+	info->response.cmd = cmd_done;
 
 	return 0;
 }
@@ -1395,10 +1367,8 @@ static int hfi_process_session_flush_done(u32 device_id,
 		return -EINVAL;
 	}
 
-	*info = (struct msm_vidc_cb_info) {
-		.response_type =  HAL_SESSION_FLUSH_DONE,
-		.response.cmd = cmd_done,
-	};
+	info->response_type = HAL_SESSION_FLUSH_DONE;
+	info->response.cmd = cmd_done;
 
 	return 0;
 }
@@ -1446,10 +1416,8 @@ static int hfi_process_session_etb_done(u32 device_id,
 		(u32)pkt->packet_buffer, -1, -1,
 		pkt->filled_len, pkt->offset);
 
-	*info = (struct msm_vidc_cb_info) {
-		.response_type =  HAL_SESSION_ETB_DONE,
-		.response.data = data_done,
-	};
+	info->response_type = HAL_SESSION_ETB_DONE;
+	info->response.data = data_done;
 
 	return 0;
 }
@@ -1573,10 +1541,8 @@ static int hfi_process_session_ftb_done(
 		data_done.output_done.filled_len1,
 		data_done.output_done.offset1);
 
-	*info = (struct msm_vidc_cb_info) {
-		.response_type =  HAL_SESSION_FTB_DONE,
-		.response.data = data_done,
-	};
+	info->response_type = HAL_SESSION_FTB_DONE;
+	info->response.data = data_done;
 
 	return 0;
 }
@@ -1602,10 +1568,8 @@ static int hfi_process_session_start_done(u32 device_id,
 	cmd_done.status = hfi_map_err_status(pkt->error_type);
 	cmd_done.size = 0;
 
-	*info = (struct msm_vidc_cb_info) {
-		.response_type =  HAL_SESSION_START_DONE,
-		.response.cmd = cmd_done,
-	};
+	info->response_type = HAL_SESSION_START_DONE;
+	info->response.cmd = cmd_done;
 	return 0;
 }
 
@@ -1630,10 +1594,8 @@ static int hfi_process_session_stop_done(u32 device_id,
 	cmd_done.status = hfi_map_err_status(pkt->error_type);
 	cmd_done.size = 0;
 
-	*info = (struct msm_vidc_cb_info) {
-		.response_type =  HAL_SESSION_STOP_DONE,
-		.response.cmd = cmd_done,
-	};
+	info->response_type = HAL_SESSION_STOP_DONE;
+	info->response.cmd = cmd_done;
 
 	return 0;
 }
@@ -1659,10 +1621,8 @@ static int hfi_process_session_rel_res_done(u32 device_id,
 	cmd_done.status = hfi_map_err_status(pkt->error_type);
 	cmd_done.size = 0;
 
-	*info = (struct msm_vidc_cb_info) {
-		.response_type =  HAL_SESSION_RELEASE_RESOURCE_DONE,
-		.response.cmd = cmd_done,
-	};
+	info->response_type = HAL_SESSION_RELEASE_RESOURCE_DONE;
+	info->response.cmd = cmd_done;
 
 	return 0;
 }
@@ -1690,10 +1650,8 @@ static int hfi_process_session_rel_buf_done(u32 device_id,
 		*(struct hal_buffer_info *)pkt->rg_buffer_info;
 	cmd_done.size = sizeof(struct hal_buffer_info);
 
-	*info = (struct msm_vidc_cb_info) {
-		.response_type =  HAL_SESSION_RELEASE_BUFFER_DONE,
-		.response.cmd = cmd_done,
-	};
+	info->response_type = HAL_SESSION_RELEASE_BUFFER_DONE;
+	info->response.cmd = cmd_done;
 
 	return 0;
 }
@@ -1717,10 +1675,8 @@ static int hfi_process_session_end_done(u32 device_id,
 	cmd_done.status = hfi_map_err_status(pkt->error_type);
 	cmd_done.size = 0;
 
-	*info = (struct msm_vidc_cb_info) {
-		.response_type =  HAL_SESSION_END_DONE,
-		.response.cmd = cmd_done,
-	};
+	info->response_type = HAL_SESSION_END_DONE;
+	info->response.cmd = cmd_done;
 
 	return 0;
 }
@@ -1745,10 +1701,8 @@ static int hfi_process_session_abort_done(u32 device_id,
 	cmd_done.status = hfi_map_err_status(pkt->error_type);
 	cmd_done.size = 0;
 
-	*info = (struct msm_vidc_cb_info) {
-		.response_type =  HAL_SESSION_ABORT_DONE,
-		.response.cmd = cmd_done,
-	};
+	info->response_type = HAL_SESSION_ABORT_DONE;
+	info->response.cmd = cmd_done;
 
 	return 0;
 }

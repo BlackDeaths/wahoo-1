@@ -1219,6 +1219,7 @@ static void arm_smmu_secure_pool_destroy(struct arm_smmu_domain *smmu_domain)
 	list_for_each_entry_safe(it, i, &smmu_domain->secure_pool_list, list) {
 		arm_smmu_unprepare_pgtable(smmu_domain, it->addr, it->size);
 		/* pages will be freed later (after being unassigned) */
+		list_del(&it->list);
 		kfree(it);
 	}
 }
@@ -1703,7 +1704,8 @@ static void arm_smmu_pgtbl_unlock(struct arm_smmu_domain *smmu_domain,
 
 static int arm_smmu_restore_sec_cfg(struct arm_smmu_device *smmu)
 {
-	int ret, scm_ret;
+	int ret;
+	u64 scm_ret;
 
 	if (!arm_smmu_is_static_cb(smmu))
 		return 0;
@@ -1930,9 +1932,19 @@ static void arm_smmu_destroy_domain_context(struct iommu_domain *domain)
 	cb_base = ARM_SMMU_CB_BASE(smmu) + ARM_SMMU_CB(smmu, cfg->cbndx);
 	writel_relaxed(0, cb_base + ARM_SMMU_CB_SCTLR);
 
-	arm_smmu_tlb_inv_context(smmu_domain);
-
 	arm_smmu_disable_clocks(smmu_domain->smmu);
+
+	if (smmu_domain->pgtbl_ops) {
+		free_io_pgtable_ops(smmu_domain->pgtbl_ops);
+		/* unassign any freed page table memory */
+		if (arm_smmu_is_master_side_secure(smmu_domain)) {
+			arm_smmu_secure_domain_lock(smmu_domain);
+			arm_smmu_secure_pool_destroy(smmu_domain);
+			arm_smmu_unassign_table(smmu_domain);
+			arm_smmu_secure_domain_unlock(smmu_domain);
+		}
+		smmu_domain->pgtbl_ops = NULL;
+	}
 
 free_irqs:
 	if (cfg->irptndx != INVALID_IRPTNDX) {
@@ -3562,8 +3574,8 @@ static int arm_smmu_init_clocks(struct arm_smmu_device *smmu)
 		return 0;
 	}
 
-	smmu->clocks = devm_kzalloc(
-		dev, sizeof(*smmu->clocks) * smmu->num_clocks,
+	smmu->clocks = devm_kcalloc(
+		dev, smmu->num_clocks, sizeof(*smmu->clocks),
 		GFP_KERNEL);
 
 	if (!smmu->clocks) {
@@ -3646,13 +3658,14 @@ static int arm_smmu_parse_impl_def_registers(struct arm_smmu_device *smmu)
 		return -EINVAL;
 	}
 
-	regs = devm_kmalloc(
-		dev, sizeof(*smmu->impl_def_attach_registers) * ntuples,
+	regs = devm_kmalloc_array(
+		dev, ntuples, sizeof(*smmu->impl_def_attach_registers),
 		GFP_KERNEL);
 	if (!regs)
 		return -ENOMEM;
 
-	tuples = devm_kmalloc(dev, sizeof(u32) * ntuples * 2, GFP_KERNEL);
+	tuples = devm_kmalloc(dev, array3_size(sizeof(u32), ntuples, 2),
+			      GFP_KERNEL);
 	if (!tuples)
 		return -ENOMEM;
 
@@ -3966,7 +3979,7 @@ static int arm_smmu_device_dt_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
-	smmu->irqs = devm_kzalloc(dev, sizeof(*smmu->irqs) * num_irqs,
+	smmu->irqs = devm_kcalloc(dev, num_irqs, sizeof(*smmu->irqs),
 				  GFP_KERNEL);
 	if (!smmu->irqs) {
 		dev_err(dev, "failed to allocate %d irqs\n", num_irqs);

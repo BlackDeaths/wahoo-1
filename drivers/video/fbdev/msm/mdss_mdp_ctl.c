@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -1487,7 +1487,7 @@ static bool is_mdp_prefetch_needed(struct mdss_panel_info *pinfo)
  * the mdp fetch lines  as the last (25 - vbp - vpw) lines of vertical
  * front porch.
  */
-int mdss_mdp_get_prefetch_lines(struct mdss_panel_info *pinfo)
+int mdss_mdp_get_prefetch_lines(struct mdss_panel_info *pinfo, bool is_fixed)
 {
 	int prefetch_avail = 0;
 	int v_total, vfp_start;
@@ -1496,7 +1496,11 @@ int mdss_mdp_get_prefetch_lines(struct mdss_panel_info *pinfo)
 	if (!is_mdp_prefetch_needed(pinfo))
 		return 0;
 
-	v_total = mdss_panel_get_vtotal(pinfo);
+	if (is_fixed)
+		v_total = mdss_panel_get_vtotal_fixed(pinfo);
+	else
+		v_total = mdss_panel_get_vtotal(pinfo);
+
 	vfp_start = (pinfo->lcdc.v_back_porch + pinfo->lcdc.v_pulse_width +
 			pinfo->yres);
 
@@ -4168,7 +4172,8 @@ static void mdss_mdp_wait_for_panel_on(struct mdss_panel_data *pdata)
 	struct mdss_dsi_ctrl_pdata *ctrl_pdata =
 		container_of(pdata, typeof(*ctrl_pdata), panel_data);
 
-	wait_for_completion(&ctrl_pdata->wake_comp);
+	if (atomic_read(&ctrl_pdata->needs_wake))
+		wait_for_completion(&ctrl_pdata->wake_comp);
 }
 
 int mdss_mdp_ctl_intf_event(struct mdss_mdp_ctl *ctl, int event, void *arg,
@@ -5162,8 +5167,8 @@ int mdss_mdp_mixer_addr_setup(struct mdss_data_type *mdata,
 			(mdata->wfd_mode == MDSS_MDP_WFD_SHARED))
 		size++;
 
-	head = devm_kzalloc(&mdata->pdev->dev, sizeof(struct mdss_mdp_mixer) *
-			size, GFP_KERNEL);
+	head = devm_kcalloc(&mdata->pdev->dev,
+			    size, sizeof(struct mdss_mdp_mixer), GFP_KERNEL);
 
 	if (!head) {
 		pr_err("unable to setup mixer type=%d :kzalloc fail\n",
@@ -5233,8 +5238,8 @@ int mdss_mdp_ctl_addr_setup(struct mdss_data_type *mdata,
 		mutex_init(shared_lock);
 	}
 
-	head = devm_kzalloc(&mdata->pdev->dev, sizeof(struct mdss_mdp_ctl) *
-			size, GFP_KERNEL);
+	head = devm_kcalloc(&mdata->pdev->dev,
+			    size, sizeof(struct mdss_mdp_ctl), GFP_KERNEL);
 
 	if (!head) {
 		pr_err("unable to setup ctl and wb: kzalloc fail\n");
@@ -5269,8 +5274,9 @@ int mdss_mdp_wb_addr_setup(struct mdss_data_type *mdata,
 	u32 total, i;
 
 	total = num_block_wb + num_intf_wb;
-	wb = devm_kzalloc(&mdata->pdev->dev, sizeof(struct mdss_mdp_writeback) *
-			total, GFP_KERNEL);
+	wb = devm_kcalloc(&mdata->pdev->dev,
+			  total, sizeof(struct mdss_mdp_writeback),
+			  GFP_KERNEL);
 	if (!wb) {
 		pr_err("unable to setup wb: kzalloc fail\n");
 		return -ENOMEM;
@@ -5858,9 +5864,7 @@ int mdss_mdp_display_commit(struct mdss_mdp_ctl *ctl, void *arg,
 		} else {
 			sctl_flush_bits = sctl->flush_bits;
 		}
-		sctl->commit_in_progress = true;
 	}
-	ctl->commit_in_progress = true;
 	ctl_flush_bits = ctl->flush_bits;
 
 	ATRACE_END("postproc_programming");
@@ -5874,6 +5878,9 @@ int mdss_mdp_display_commit(struct mdss_mdp_ctl *ctl, void *arg,
 			MDP_COMMIT_STAGE_SETUP_DONE,
 			commit_cb->data);
 	ret = mdss_mdp_ctl_notify(ctl, MDP_NOTIFY_FRAME_READY);
+	ctl->commit_in_progress = true;
+	if (sctl)
+		sctl->commit_in_progress = true;
 
 	/*
 	 * When wait for fence timed out, driver ignores the fences

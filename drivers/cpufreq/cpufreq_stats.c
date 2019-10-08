@@ -212,12 +212,10 @@ static void *uid_seq_start(struct seq_file *seq, loff_t *pos)
 
 static void *uid_seq_next(struct seq_file *seq, void *v, loff_t *pos)
 {
-	do {
-		(*pos)++;
+	(*pos)++;
 
-		if (*pos >= HASH_SIZE(uid_hash_table))
-			return NULL;
-	} while (hlist_empty(&uid_hash_table[*pos]));
+	if (*pos >= HASH_SIZE(uid_hash_table))
+		return NULL;
 
 	return &uid_hash_table[*pos];
 }
@@ -248,8 +246,7 @@ static int uid_time_in_state_seq_show(struct seq_file *m, void *v)
 			if (table && last_policy != policy) {
 				last_policy = policy;
 				cpufreq_for_each_valid_entry(pos, table)
-					seq_put_decimal_ull(m, ' ',
-							    pos->frequency);
+					seq_printf(m, " %d", pos->frequency);
 			}
 			cpufreq_cpu_put(policy);
 		}
@@ -259,14 +256,12 @@ static int uid_time_in_state_seq_show(struct seq_file *m, void *v)
 	rcu_read_lock();
 
 	hlist_for_each_entry_rcu(uid_entry, (struct hlist_head *)v, hash) {
-		if (uid_entry->max_state) {
-			seq_put_decimal_ull(m, (char)0, uid_entry->uid);
-			seq_putc(m, ':');
-		}
+		if (uid_entry->max_state)
+			seq_printf(m, "%d:", uid_entry->uid);
+
 		for (i = 0; i < uid_entry->max_state; ++i) {
-			u64 time = cputime_to_clock_t(
-				uid_entry->time_in_state[i]);
-			seq_put_decimal_ull(m, ' ', time);
+			seq_printf(m, " %lu", (unsigned long)cputime_to_clock_t(
+					   uid_entry->time_in_state[i]));
 		}
 		if (uid_entry->max_state)
 			seq_putc(m, '\n');

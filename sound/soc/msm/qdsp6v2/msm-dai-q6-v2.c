@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -2887,9 +2887,9 @@ static int msm_auxpcm_dev_probe(struct platform_device *pdev)
 	}
 
 	auxpcm_pdata->mode_8k.slot_mapping =
-					kzalloc(sizeof(uint16_t) *
-					    auxpcm_pdata->mode_8k.num_slots,
-					    GFP_KERNEL);
+					kcalloc(auxpcm_pdata->mode_8k.num_slots,
+						sizeof(uint16_t),
+						GFP_KERNEL);
 	if (!auxpcm_pdata->mode_8k.slot_mapping) {
 		dev_err(&pdev->dev, "%s No mem for mode_8k slot mapping\n",
 			__func__);
@@ -2902,9 +2902,9 @@ static int msm_auxpcm_dev_probe(struct platform_device *pdev)
 				(u16)be32_to_cpu(slot_mapping_array[i]);
 
 	auxpcm_pdata->mode_16k.slot_mapping =
-					kzalloc(sizeof(uint16_t) *
-					     auxpcm_pdata->mode_16k.num_slots,
-					     GFP_KERNEL);
+					kcalloc(auxpcm_pdata->mode_16k.num_slots,
+						sizeof(uint16_t),
+						GFP_KERNEL);
 
 	if (!auxpcm_pdata->mode_16k.slot_mapping) {
 		dev_err(&pdev->dev, "%s No mem for mode_16k slot mapping\n",
@@ -3497,13 +3497,13 @@ static int msm_dai_q6_dai_mi2s_probe(struct snd_soc_dai *dai)
 	ctrl = NULL;
 	if (mi2s_dai_data->tx_dai.mi2s_dai_data.port_config.i2s.channel_mode) {
 		if (dai->id == MSM_PRIM_MI2S)
-			ctrl = &mi2s_config_controls[4];
-		if (dai->id == MSM_SEC_MI2S)
 			ctrl = &mi2s_config_controls[5];
-		if (dai->id == MSM_TERT_MI2S)
+		if (dai->id == MSM_SEC_MI2S)
 			ctrl = &mi2s_config_controls[6];
-		if (dai->id == MSM_QUAT_MI2S)
+		if (dai->id == MSM_TERT_MI2S)
 			ctrl = &mi2s_config_controls[7];
+		if (dai->id == MSM_QUAT_MI2S)
+			ctrl = &mi2s_config_controls[8];
 		if (dai->id == MSM_QUIN_MI2S)
 			ctrl = &mi2s_config_controls[9];
 		if (dai->id == MSM_SENARY_MI2S)
@@ -4088,18 +4088,6 @@ static struct snd_soc_dai_driver msm_dai_q6_mi2s_dai[] = {
 	},
 	{
 		.playback = {
-			.stream_name = "Secondary MI2S Playback SD1",
-			.aif_name = "SEC_MI2S_RX_SD1",
-			.rates = SNDRV_PCM_RATE_48000 | SNDRV_PCM_RATE_8000 |
-			SNDRV_PCM_RATE_16000,
-			.formats = SNDRV_PCM_FMTBIT_S16_LE,
-			.rate_min =     8000,
-			.rate_max =     48000,
-		},
-		.id = MSM_SEC_MI2S_SD1,
-	},
-	{
-		.playback = {
 			.stream_name = "Quinary MI2S Playback",
 			.aif_name = "QUIN_MI2S_RX",
 			.rates = SNDRV_PCM_RATE_48000 | SNDRV_PCM_RATE_8000 |
@@ -4122,6 +4110,18 @@ static struct snd_soc_dai_driver msm_dai_q6_mi2s_dai[] = {
 		.id = MSM_QUIN_MI2S,
 		.probe = msm_dai_q6_dai_mi2s_probe,
 		.remove = msm_dai_q6_dai_mi2s_remove,
+	},
+	{
+		.playback = {
+			.stream_name = "Secondary MI2S Playback SD1",
+			.aif_name = "SEC_MI2S_RX_SD1",
+			.rates = SNDRV_PCM_RATE_48000 | SNDRV_PCM_RATE_8000 |
+			SNDRV_PCM_RATE_16000,
+			.formats = SNDRV_PCM_FMTBIT_S16_LE,
+			.rate_min =     8000,
+			.rate_max =     48000,
+		},
+		.id = MSM_SEC_MI2S_SD1,
 	},
 	{
 		.capture = {

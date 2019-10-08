@@ -373,6 +373,15 @@ static bool mdss_rotator_is_work_pending(struct mdss_rot_mgr *mgr,
 	return false;
 }
 
+static void mdss_rotator_install_fence_fd(struct mdss_rot_entry_container *req)
+{
+	int i = 0;
+
+	for (i = 0; i < req->count; i++)
+		sync_fence_install(req->entries[i].output_fence,
+				req->entries[i].output_fence_fd);
+}
+
 static int mdss_rotator_create_fence(struct mdss_rot_entry *entry)
 {
 	int ret = 0, fd;
@@ -411,7 +420,6 @@ static int mdss_rotator_create_fence(struct mdss_rot_entry *entry)
 		goto get_fd_err;
 	}
 
-	sync_fence_install(fence, fd);
 	rot_timeline->next_value++;
 	mutex_unlock(&rot_timeline->lock);
 
@@ -1944,8 +1952,8 @@ static int mdss_rotator_open_session(struct mdss_rot_mgr *mgr,
 	}
 
 	ATRACE_BEGIN(__func__); /* Open session votes for bw */
-	perf->work_distribution = devm_kzalloc(&mgr->pdev->dev,
-		sizeof(u32) * mgr->queue_count, GFP_KERNEL);
+	perf->work_distribution = devm_kcalloc(&mgr->pdev->dev,
+		mgr->queue_count, sizeof(u32), GFP_KERNEL);
 	if (!perf->work_distribution) {
 		pr_err("fail to allocate work_distribution\n");
 		ret = -ENOMEM;
@@ -2244,6 +2252,7 @@ static int mdss_rotator_handle_request(struct mdss_rot_mgr *mgr,
 		goto handle_request_err1;
 	}
 
+	mdss_rotator_install_fence_fd(req);
 	mdss_rotator_queue_request(mgr, private, req);
 
 	mutex_unlock(&mgr->lock);
@@ -2404,6 +2413,7 @@ static int mdss_rotator_handle_request32(struct mdss_rot_mgr *mgr,
 		goto handle_request32_err1;
 	}
 
+	mdss_rotator_install_fence_fd(req);
 	mdss_rotator_queue_request(mgr, private, req);
 
 	mutex_unlock(&mgr->lock);
@@ -2695,8 +2705,9 @@ static int mdss_rotator_get_dt_vreg_data(struct device *dev,
 		return 0;
 	}
 	mp->num_vreg = dt_vreg_total;
-	mp->vreg_config = devm_kzalloc(dev, sizeof(struct dss_vreg) *
-		dt_vreg_total, GFP_KERNEL);
+	mp->vreg_config = devm_kcalloc(dev,
+				       dt_vreg_total, sizeof(struct dss_vreg),
+				       GFP_KERNEL);
 	if (!mp->vreg_config) {
 		DEV_ERR("%s: can't alloc vreg mem\n", __func__);
 		return -ENOMEM;

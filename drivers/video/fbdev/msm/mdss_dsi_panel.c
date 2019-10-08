@@ -615,14 +615,14 @@ static char paset_dual[] = {0x2b, 0x00, 0x00, 0x05, 0x00, 0x03,
 
 /* pack into one frame before sent */
 static struct dsi_cmd_desc set_col_page_addr_cmd[] = {
-	{{DTYPE_DCS_LWRITE, 0, 0, 0, 1, sizeof(caset)}, caset},	/* packed */
-	{{DTYPE_DCS_LWRITE, 1, 0, 0, 1, sizeof(paset)}, paset},
+	{{DTYPE_DCS_LWRITE, 0, 0, 0, 0, sizeof(caset)}, caset},	/* packed */
+	{{DTYPE_DCS_LWRITE, 0, 0, 0, 0, sizeof(paset)}, paset},
 };
 
 /* pack into one frame before sent */
 static struct dsi_cmd_desc set_dual_col_page_addr_cmd[] = {	/*packed*/
-	{{DTYPE_DCS_LWRITE, 0, 0, 0, 1, sizeof(caset_dual)}, caset_dual},
-	{{DTYPE_DCS_LWRITE, 1, 0, 0, 1, sizeof(paset_dual)}, paset_dual},
+	{{DTYPE_DCS_LWRITE, 0, 0, 0, 0, sizeof(caset_dual)}, caset_dual},
+	{{DTYPE_DCS_LWRITE, 0, 0, 0, 0, sizeof(paset_dual)}, paset_dual},
 };
 
 
@@ -1258,7 +1258,7 @@ static int mdss_dsi_parse_dcs_cmds(struct device_node *np,
 		return -ENOMEM;
 	}
 
-	buf = kzalloc(sizeof(char) * blen, GFP_KERNEL);
+	buf = kzalloc(blen, GFP_KERNEL);
 	if (!buf)
 		return -ENOMEM;
 
@@ -1289,7 +1289,7 @@ static int mdss_dsi_parse_dcs_cmds(struct device_node *np,
 		goto exit_free;
 	}
 
-	pcmds->cmds = kzalloc(cnt * sizeof(struct dsi_cmd_desc),
+	pcmds->cmds = kcalloc(cnt, sizeof(struct dsi_cmd_desc),
 						GFP_KERNEL);
 	if (!pcmds->cmds)
 		goto exit_free;
@@ -2193,8 +2193,8 @@ static void mdss_dsi_parse_esd_params(struct device_node *np,
 		goto error1;
 	}
 
-	ctrl->status_value = kzalloc(sizeof(u32) * status_len * ctrl->groups,
-				GFP_KERNEL);
+	ctrl->status_value = kzalloc(array3_size(sizeof(u32), status_len, ctrl->groups),
+				     GFP_KERNEL);
 	if (!ctrl->status_value)
 		goto error1;
 
@@ -2589,7 +2589,7 @@ static void mdss_dsi_parse_panel_horizintal_line_idle(struct device_node *np,
 
 	cnt = len / sizeof(u32);
 
-	kp = kzalloc(sizeof(*kp) * (cnt / 3), GFP_KERNEL);
+	kp = kcalloc(cnt / 3, sizeof(*kp), GFP_KERNEL);
 	if (kp == NULL) {
 		pr_err("%s: No memory\n", __func__);
 		return;

@@ -33,6 +33,7 @@
 #include <linux/hrtimer.h>
 #include <asm-generic/cputime.h>
 #include <linux/wakelock.h>
+#include <linux/wahoo_info.h>
 
 /* Tunables */
 #define WG_DEBUG		0
@@ -68,10 +69,10 @@
 #define SWEEP_Y_NEXT_WALLEYE	135
 
 /* Wake Gestures */
-#define SWEEP_TIMEOUT		90
-#define TRIGGER_TIMEOUT		150
+#define SWEEP_TIMEOUT		300
+#define TRIGGER_TIMEOUT		500
 #define DT2W_FEATHER		150
-#define DT2W_TIME 		150
+#define DT2W_TIME 		500
 #define WAKE_GESTURE		0x0b
 #define SWEEP_RIGHT		0x01
 #define SWEEP_LEFT		0x02
@@ -127,27 +128,7 @@ static struct work_struct s2w_input_work;
 static struct work_struct dt2w_input_work;
 static struct wake_lock dt2w_wakelock;
 
-//get hardware type
 static int hw_version = TAIMEN;
-static int __init get_model(char *cmdline_model)
-{
-	if (strstr(cmdline_model, "walleye")) {
-		sweep_y_limit = SWEEP_Y_LIMIT_WALLEYE;
-		sweep_x_limit = SWEEP_X_LIMIT_WALLEYE;
-		sweep_x_b1 = SWEEP_X_B1_WALLEYE;
-		sweep_x_b2 = SWEEP_X_B2_WALLEYE;
-		sweep_y_start = SWEEP_Y_START_WALLEYE;
-		sweep_x_start = SWEEP_X_START_WALLEYE;
-		sweep_x_final = SWEEP_X_FINAL_WALLEYE;
-		sweep_y_next = SWEEP_Y_NEXT_WALLEYE;
-		sweep_x_max = SWEEP_X_MAX_WALLEYE;
-		sweep_edge = SWEEP_EDGE_WALLEYE;
-		hw_version = WALLEYE;
-	}
-
-	return 0;
-}
-__setup("androidboot.hardware=", get_model);
 
 static bool is_suspended(void)
 {
@@ -167,7 +148,7 @@ static void report_gesture(int gest)
 	if (pwrtrigger_time[0] - pwrtrigger_time[1] < TRIGGER_TIMEOUT)
 		return;
 
-	wake_lock_timeout(&dt2w_wakelock, 150);
+	wake_lock_timeout(&dt2w_wakelock, 500);
 	input_report_rel(gesture_dev, WAKE_GESTURE, gest);
 	input_sync(gesture_dev);
 }
@@ -232,7 +213,7 @@ static void new_touch(int x, int y) {
 	x_pre = x;
 	y_pre = y;
 	touch_nr++;
-	wake_lock_timeout(&dt2w_wakelock, 150);
+	wake_lock_timeout(&dt2w_wakelock, 500);
 }
 
 /* Doubletap2wake main function */
@@ -733,6 +714,20 @@ static int __init wake_gestures_init(void)
 {
 	int rc = 0;
 
+	if (is_google_walleye()) {
+		sweep_y_limit = SWEEP_Y_LIMIT_WALLEYE;
+		sweep_x_limit = SWEEP_X_LIMIT_WALLEYE;
+		sweep_x_b1 = SWEEP_X_B1_WALLEYE;
+		sweep_x_b2 = SWEEP_X_B2_WALLEYE;
+		sweep_y_start = SWEEP_Y_START_WALLEYE;
+		sweep_x_start = SWEEP_X_START_WALLEYE;
+		sweep_x_final = SWEEP_X_FINAL_WALLEYE;
+		sweep_y_next = SWEEP_Y_NEXT_WALLEYE;
+		sweep_x_max = SWEEP_X_MAX_WALLEYE;
+		sweep_edge = SWEEP_EDGE_WALLEYE;
+		hw_version = WALLEYE;
+	}
+
 	wake_dev = input_allocate_device();
 	if (!wake_dev) {
 		pr_err("Failed to allocate wake_dev\n");
@@ -847,4 +842,3 @@ static void __exit wake_gestures_exit(void)
 
 module_init(wake_gestures_init);
 module_exit(wake_gestures_exit);
-

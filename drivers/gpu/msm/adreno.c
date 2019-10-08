@@ -1,4 +1,4 @@
-/* Copyright (c) 2002,2007-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2002,2007-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -762,6 +762,9 @@ static int adreno_of_get_power(struct adreno_device *adreno_dev,
 	device->pwrctrl.bus_control = of_property_read_bool(node,
 		"qcom,bus-control");
 
+	device->pwrctrl.input_disable = of_property_read_bool(node,
+		"qcom,disable-wake-on-touch");
+
 	return 0;
 }
 
@@ -968,10 +971,10 @@ static void adreno_fault_detect_init(struct adreno_device *adreno_dev)
 	adreno_ft_regs_num = (ARRAY_SIZE(adreno_ft_regs_default) +
 		gpudev->ft_perf_counters_count*2);
 
-	adreno_ft_regs = kzalloc(adreno_ft_regs_num * sizeof(unsigned int),
-		GFP_KERNEL);
-	adreno_ft_regs_val = kzalloc(adreno_ft_regs_num * sizeof(unsigned int),
-		GFP_KERNEL);
+	adreno_ft_regs = kcalloc(adreno_ft_regs_num, sizeof(unsigned int),
+				 GFP_KERNEL);
+	adreno_ft_regs_val = kcalloc(adreno_ft_regs_num, sizeof(unsigned int),
+				     GFP_KERNEL);
 
 	if (adreno_ft_regs == NULL || adreno_ft_regs_val == NULL) {
 		kfree(adreno_ft_regs);
@@ -1128,7 +1131,7 @@ static void _set_secvid(struct kgsl_device *device)
 		adreno_writereg64(adreno_dev,
 			ADRENO_REG_RBBM_SECVID_TSB_TRUSTED_BASE,
 			ADRENO_REG_RBBM_SECVID_TSB_TRUSTED_BASE_HI,
-			KGSL_IOMMU_SECURE_BASE);
+			KGSL_IOMMU_SECURE_BASE(&device->mmu));
 		adreno_writereg(adreno_dev,
 			ADRENO_REG_RBBM_SECVID_TSB_TRUSTED_SIZE,
 			KGSL_IOMMU_SECURE_SIZE);
@@ -1154,6 +1157,10 @@ static int _adreno_start(struct adreno_device *adreno_dev)
 
 	/* make sure ADRENO_DEVICE_STARTED is not set here */
 	BUG_ON(test_bit(ADRENO_DEVICE_STARTED, &adreno_dev->priv));
+
+	/* disallow l2pc during wake up to improve GPU wake up time */
+	kgsl_pwrctrl_update_l2pc(&adreno_dev->dev,
+			KGSL_L2PC_WAKEUP_TIMEOUT);
 
 	pm_qos_update_request(&device->pwrctrl.pm_qos_req_dma,
 			pmqos_wakeup_vote);
@@ -1527,7 +1534,7 @@ static int adreno_getproperty(struct kgsl_device *device,
 				 * anything to mmap().
 				 */
 				shadowprop.gpuaddr =
-					(unsigned int) device->memstore.gpuaddr;
+					(unsigned long)device->memstore.gpuaddr;
 				shadowprop.size = device->memstore.size;
 				/* GSL needs this to be set, even if it
 				   appears to be meaningless */

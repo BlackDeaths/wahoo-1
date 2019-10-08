@@ -1567,8 +1567,8 @@ static void init_pd_phy_params(struct pd_phy_params *pdphy_params)
 static void usbpd_device_release(struct device *dev)
 {
 	/*
-	 * Empty function to silence WARN_ON upon put_device on a device
-	 * without a release function.
+	 * Empty function to silence WARN_ON() upon device_unregister on a
+	 * device with no release() function.
 	 */
 }
 
@@ -1617,8 +1617,10 @@ struct usbpd *usbpd_create(struct device *parent)
 		goto free_pd;
 
 	ret = device_add(&pd->dev);
-	if (ret < 0)
-		goto put_pd;
+	if (ret < 0) {
+		kfree_const(pd->dev.kobj.name);
+		goto free_pd;
+	}
 
 	ret = pd_engine_debugfs_init(pd);
 	if (ret < 0)
@@ -1699,9 +1701,7 @@ del_wq:
 exit_debugfs:
 	pd_engine_debugfs_exit(pd);
 del_pd:
-	device_del(&pd->dev);
-put_pd:
-	put_device(&pd->dev);
+	device_unregister(&pd->dev);
 free_pd:
 	num_pd_instances--;
 	kfree(pd);
@@ -1724,8 +1724,7 @@ void usbpd_destroy(struct usbpd *pd)
 	power_supply_put(pd->usb_psy);
 	destroy_workqueue(pd->wq);
 	pd_engine_debugfs_exit(pd);
-	device_del(&pd->dev);
-	put_device(&pd->dev);
+	device_unregister(&pd->dev);
 	num_pd_instances--;
 	kfree(pd);
 }

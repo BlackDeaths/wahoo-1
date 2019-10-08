@@ -233,7 +233,7 @@ static int of_read_clocks(struct device *dev, struct clk ***clks_ref,
 		return -EINVAL;
 	}
 
-	clks = devm_kzalloc(dev, sizeof(struct clk *) * clk_count,
+	clks = devm_kcalloc(dev, clk_count, sizeof(struct clk *),
 				GFP_KERNEL);
 	if (!clks)
 		return -ENOMEM;
@@ -290,7 +290,7 @@ static int of_read_regs(struct device *dev, struct reg_info **regs_ref,
 		return -EINVAL;
 	}
 
-	regs = devm_kzalloc(dev, sizeof(struct reg_info) * reg_count,
+	regs = devm_kcalloc(dev, reg_count, sizeof(struct reg_info),
 				GFP_KERNEL);
 	if (!regs)
 		return -ENOMEM;
@@ -579,8 +579,7 @@ static void pil_remove_proxy_vote(struct pil_desc *pil)
 }
 
 static int pil_init_image_trusted(struct pil_desc *pil,
-		const u8 *metadata, size_t size,
-		 phys_addr_t addr, size_t sz)
+		const u8 *metadata, size_t size)
 {
 	struct pil_tz_data *d = desc_to_data(pil);
 	struct pas_init_image_req {
@@ -1077,23 +1076,55 @@ static int pil_tz_driver_probe(struct platform_device *pdev)
 		res = platform_get_resource_byname(pdev, IORESOURCE_MEM,
 						"sp2soc_irq_status");
 		d->irq_status = devm_ioremap_resource(&pdev->dev, res);
+		if (IS_ERR(d->irq_status)) {
+			dev_err(&pdev->dev, "Invalid resource for sp2soc_irq_status\n");
+			rc = PTR_ERR(d->irq_status);
+			goto err_ramdump;
+		}
+
 		res = platform_get_resource_byname(pdev, IORESOURCE_MEM,
 						"sp2soc_irq_clr");
 		d->irq_clear = devm_ioremap_resource(&pdev->dev, res);
+		if (IS_ERR(d->irq_clear)) {
+			dev_err(&pdev->dev, "Invalid resource for sp2soc_irq_clr\n");
+			rc = PTR_ERR(d->irq_clear);
+			goto err_ramdump;
+		}
+
 		res = platform_get_resource_byname(pdev, IORESOURCE_MEM,
 						"sp2soc_irq_mask");
 		d->irq_mask = devm_ioremap_resource(&pdev->dev, res);
+		if (IS_ERR(d->irq_mask)) {
+			dev_err(&pdev->dev, "Invalid resource for sp2soc_irq_mask\n");
+			rc = PTR_ERR(d->irq_mask);
+			goto err_ramdump;
+		}
+
 		res = platform_get_resource_byname(pdev, IORESOURCE_MEM,
 						"rmb_err");
 		d->err_status = devm_ioremap_resource(&pdev->dev, res);
+		if (IS_ERR(d->err_status)) {
+			dev_err(&pdev->dev, "Invalid resource for rmb_err\n");
+			rc = PTR_ERR(d->err_status);
+			goto err_ramdump;
+		}
+
 		res = platform_get_resource_byname(pdev, IORESOURCE_MEM,
 						"rmb_err_spare2");
 		d->err_status_spare = devm_ioremap_resource(&pdev->dev, res);
+		if (IS_ERR(d->err_status_spare)) {
+			dev_err(&pdev->dev, "Invalid resource for rmb_err_spare2\n");
+			rc = PTR_ERR(d->err_status_spare);
+			goto err_ramdump;
+		}
+
 		rc = of_property_read_u32_array(pdev->dev.of_node,
 		       "qcom,spss-scsr-bits", d->bits_arr, sizeof(d->bits_arr)/
 							sizeof(d->bits_arr[0]));
-		if (rc)
+		if (rc) {
 			dev_err(&pdev->dev, "Failed to read qcom,spss-scsr-bits");
+			goto err_ramdump;
+		}
 		mask_scsr_irqs(d);
 
 	} else {
@@ -1120,6 +1151,7 @@ err_subsys:
 	destroy_ramdump_device(d->ramdump_dev);
 err_ramdump:
 	pil_desc_release(&d->desc);
+	platform_set_drvdata(pdev, NULL);
 
 	return rc;
 }

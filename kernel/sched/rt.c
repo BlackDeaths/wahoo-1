@@ -182,10 +182,10 @@ int alloc_rt_sched_group(struct task_group *tg, struct task_group *parent)
 	struct sched_rt_entity *rt_se;
 	int i;
 
-	tg->rt_rq = kzalloc(sizeof(rt_rq) * nr_cpu_ids, GFP_KERNEL);
+	tg->rt_rq = kcalloc(nr_cpu_ids, sizeof(rt_rq), GFP_KERNEL);
 	if (!tg->rt_rq)
 		goto err;
-	tg->rt_se = kzalloc(sizeof(rt_se) * nr_cpu_ids, GFP_KERNEL);
+	tg->rt_se = kcalloc(nr_cpu_ids, sizeof(rt_se), GFP_KERNEL);
 	if (!tg->rt_se)
 		goto err;
 
@@ -979,10 +979,7 @@ static int sched_rt_runtime_exceeded(struct rt_rq *rt_rq)
 	return 0;
 }
 
-/* TODO: Make configurable */
 #define RT_SCHEDTUNE_INTERVAL 50000000ULL
-
-static void sched_rt_update_capacity_req(struct rq *rq);
 
 static enum hrtimer_restart rt_schedtune_timer(struct hrtimer *timer)
 {
@@ -1017,7 +1014,6 @@ static enum hrtimer_restart rt_schedtune_timer(struct hrtimer *timer)
 	 */
 	rt_se->schedtune_enqueued = false;
 	schedtune_dequeue_task(p, cpu_of(rq));
-	sched_rt_update_capacity_req(rq);
 	cpufreq_update_this_cpu(rq, SCHED_CPUFREQ_RT);
 out:
 	raw_spin_unlock(&rq->lock);
@@ -1394,6 +1390,10 @@ enqueue_task_rt(struct rq *rq, struct task_struct *p, int flags)
 {
 	struct sched_rt_entity *rt_se = &p->rt;
 
+#ifdef CONFIG_SMP
+	schedtune_enqueue_task(p, cpu_of(rq));
+#endif
+
 	if (flags & ENQUEUE_WAKEUP)
 		rt_se->timeout = 0;
 
@@ -1430,13 +1430,16 @@ enqueue_task_rt(struct rq *rq, struct task_struct *p, int flags)
 
 	rt_se->schedtune_enqueued = true;
 	schedtune_enqueue_task(p, cpu_of(rq));
-	sched_rt_update_capacity_req(rq);
 	cpufreq_update_this_cpu(rq, SCHED_CPUFREQ_RT);
 }
 
 static void dequeue_task_rt(struct rq *rq, struct task_struct *p, int flags)
 {
 	struct sched_rt_entity *rt_se = &p->rt;
+
+#ifdef CONFIG_SMP
+	schedtune_dequeue_task(p, cpu_of(rq));
+#endif
 
 	update_curr_rt(rq);
 	dequeue_rt_entity(rt_se);
@@ -1455,7 +1458,6 @@ static void dequeue_task_rt(struct rq *rq, struct task_struct *p, int flags)
 
 	rt_se->schedtune_enqueued = false;
 	schedtune_dequeue_task(p, cpu_of(rq));
-	sched_rt_update_capacity_req(rq);
 	cpufreq_update_this_cpu(rq, SCHED_CPUFREQ_RT);
 }
 
@@ -1550,12 +1552,12 @@ static void schedtune_dequeue_rt(struct rq *rq, struct task_struct *p)
 	/* schedtune_enqueued is true, deboost it */
 	rt_se->schedtune_enqueued = false;
 	schedtune_dequeue_task(p, task_cpu(p));
-	sched_rt_update_capacity_req(rq);
 	cpufreq_update_this_cpu(rq, SCHED_CPUFREQ_RT);
 }
 
 static int
-select_task_rq_rt(struct task_struct *p, int cpu, int sd_flag, int flags)
+select_task_rq_rt(struct task_struct *p, int cpu, int sd_flag, int flags,
+		  int sibling_count_hint)
 {
 	struct task_struct *curr, *tgt_task;
 	struct rq *rq;
@@ -1667,41 +1669,6 @@ static void check_preempt_curr_rt(struct rq *rq, struct task_struct *p, int flag
 #endif
 }
 
-#ifdef CONFIG_SMP
-static void sched_rt_update_capacity_req(struct rq *rq)
-{
-	u64 total, used, age_stamp, avg;
-	s64 delta;
-
-	if (!sched_freq())
-		return;
-
-	sched_avg_update(rq);
-	/*
-	 * Since we're reading these variables without serialization make sure
-	 * we read them once before doing sanity checks on them.
-	 */
-	age_stamp = READ_ONCE(rq->age_stamp);
-	avg = READ_ONCE(rq->rt_avg);
-	delta = rq_clock(rq) - age_stamp;
-
-	if (unlikely(delta < 0))
-		delta = 0;
-
-	total = sched_avg_period() + delta;
-
-	used = div_u64(avg, total);
-	if (unlikely(used > SCHED_CAPACITY_SCALE))
-		used = SCHED_CAPACITY_SCALE;
-
-	set_rt_cpu_capacity(rq->cpu, 1, (unsigned long)(used));
-}
-#else
-static inline void sched_rt_update_capacity_req(struct rq *rq)
-{ }
-
-#endif
-
 static struct sched_rt_entity *pick_next_rt_entity(struct rq *rq,
 						   struct rt_rq *rt_rq)
 {
@@ -1770,17 +1737,8 @@ pick_next_task_rt(struct rq *rq, struct task_struct *prev)
 	if (prev->sched_class == &rt_sched_class)
 		update_curr_rt(rq);
 
-	if (!rt_rq->rt_queued) {
-		/*
-		 * The next task to be picked on this rq will have a lower
-		 * priority than rt tasks so we can spend some time to update
-		 * the capacity used by rt tasks based on the last activity.
-		 * This value will be the used as an estimation of the next
-		 * activity.
-		 */
-		sched_rt_update_capacity_req(rq);
+	if (!rt_rq->rt_queued)
 		return NULL;
-	}
 
 	put_prev_task(rq, prev);
 
@@ -2185,7 +2143,9 @@ retry:
 	}
 
 	deactivate_task(rq, next_task, 0);
+	next_task->on_rq = TASK_ON_RQ_MIGRATING;
 	set_task_cpu(next_task, lowest_rq->cpu);
+	next_task->on_rq = TASK_ON_RQ_QUEUED;
 	activate_task(lowest_rq, next_task, 0);
 	ret = 1;
 
@@ -2457,7 +2417,9 @@ static void pull_rt_task(struct rq *this_rq)
 			resched = true;
 
 			deactivate_task(src_rq, p, 0);
+			p->on_rq = TASK_ON_RQ_MIGRATING;
 			set_task_cpu(p, this_cpu);
+			p->on_rq = TASK_ON_RQ_QUEUED;
 			activate_task(this_rq, p, 0);
 			/*
 			 * We continue with the search, just in
@@ -2640,9 +2602,6 @@ static void task_tick_rt(struct rq *rq, struct task_struct *p, int queued)
 	struct sched_rt_entity *rt_se = &p->rt;
 
 	update_curr_rt(rq);
-
-	if (rq->rt.rt_nr_running)
-		sched_rt_update_capacity_req(rq);
 
 	watchdog(rq, p);
 

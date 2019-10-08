@@ -9,7 +9,7 @@ if ANDROID
 
 config ANDROID_BINDER_IPC
 	bool "Android Binder IPC Driver"
-	depends on MMU
+	depends on MMU && !M68K
 	default n
 	---help---
 	  Binder is used in Android for both communication between processes,
@@ -87,6 +87,7 @@ config ANDROID_SIMPLE_LMK_MINFREE
 	  Simple LMK will try to free at least this much memory per reclaim.
 
 endif
+
 
 endif # if ANDROID
 

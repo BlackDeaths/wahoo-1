@@ -23,10 +23,11 @@
 #include <linux/cpu.h>
 #include <linux/cpumask.h>
 #include <linux/suspend.h>
-#include <linux/clk.h>
+#include <linux/clk/msm-clk-provider.h>
 #include <linux/err.h>
 #include <linux/platform_device.h>
 #include <linux/of.h>
+#include <linux/delay.h>
 #include <trace/events/power.h>
 
 static DEFINE_MUTEX(l2bw_lock);
@@ -71,8 +72,11 @@ static int msm_cpufreq_target(struct cpufreq_policy *policy,
 	int ret = 0;
 	int index;
 	struct cpufreq_frequency_table *table;
+	struct clk *c = cpu_clk[policy->cpu];
+	s64 delta_us;
 
 	mutex_lock(&per_cpu(suspend_data, policy->cpu).suspend_mutex);
+	mutex_lock(&c->update_lock);
 
 	if (target_freq == policy->cur)
 		goto done;
@@ -102,9 +106,16 @@ static int msm_cpufreq_target(struct cpufreq_policy *policy,
 		policy->cpu, target_freq, relation,
 		policy->min, policy->max, table[index].frequency);
 
+	/* The old rate needs time to settle before it can be changed again */
+	delta_us = ktime_us_delta(ktime_get_boottime(), c->last_update);
+	if (delta_us < 10000)
+		usleep_range(10000 - delta_us, 11000 - delta_us);
+	c->last_update = ktime_get_boottime();
+
 	ret = set_cpu_freq(policy, table[index].frequency,
 			   table[index].driver_data);
 done:
+	mutex_unlock(&c->update_lock);
 	mutex_unlock(&per_cpu(suspend_data, policy->cpu).suspend_mutex);
 	return ret;
 }
@@ -329,7 +340,7 @@ static struct cpufreq_frequency_table *cpufreq_parse_dt(struct device *dev,
 	if (nf == 0)
 		return ERR_PTR(-EINVAL);
 
-	data = devm_kzalloc(dev, nf * sizeof(*data), GFP_KERNEL);
+	data = devm_kcalloc(dev, nf, sizeof(*data), GFP_KERNEL);
 	if (!data)
 		return ERR_PTR(-ENOMEM);
 
@@ -337,7 +348,7 @@ static struct cpufreq_frequency_table *cpufreq_parse_dt(struct device *dev,
 	if (ret)
 		return ERR_PTR(ret);
 
-	ftbl = devm_kzalloc(dev, (nf + 1) * sizeof(*ftbl), GFP_KERNEL);
+	ftbl = devm_kcalloc(dev, nf + 1, sizeof(*ftbl), GFP_KERNEL);
 	if (!ftbl)
 		return ERR_PTR(-ENOMEM);
 
@@ -391,6 +402,7 @@ static int __init msm_cpufreq_probe(struct platform_device *pdev)
 			return PTR_ERR(c);
 		else if (IS_ERR(c))
 			c = cpu_clk[cpu-1];
+		c->flags |= CLKFLAG_NO_RATE_CACHE;
 		cpu_clk[cpu] = c;
 	}
 	hotplug_ready = true;

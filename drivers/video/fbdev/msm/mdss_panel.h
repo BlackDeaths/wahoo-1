@@ -64,7 +64,7 @@ struct panel_id {
 
 static inline const char *mdss_panel2str(u32 panel)
 {
-	static const char const *names[] = {
+	static const char *names[] = {
 #define PANEL_NAME(n) [n ## _PANEL] = __stringify(n)
 		PANEL_NAME(MIPI_VIDEO),
 		PANEL_NAME(MIPI_CMD),
@@ -400,6 +400,7 @@ struct lcd_panel_info {
 	u32 h_active_low;
 	u32 v_back_porch;
 	u32 v_front_porch;
+	u32 v_front_porch_fixed;
 	u32 v_pulse_width;
 	u32 v_active_low;
 	u32 border_clr;
@@ -1069,6 +1070,23 @@ static inline u32 mdss_panel_get_framerate(struct mdss_panel_info *panel_info)
 		break;
 	}
 	return frame_rate;
+}
+
+/*
+ * mdss_panel_get_vtotal_fixed() - return panel device tree vertical height
+ * @pinfo:	Pointer to panel info containing all panel information
+ *
+ * Returns the total height as defined in panel device tree including any
+ * blanking regions which are not visible to user but used to calculate
+ * panel clock.
+ */
+static inline int mdss_panel_get_vtotal_fixed(struct mdss_panel_info *pinfo)
+{
+	return pinfo->yres + pinfo->lcdc.v_back_porch +
+			pinfo->lcdc.v_front_porch_fixed +
+			pinfo->lcdc.v_pulse_width+
+			pinfo->lcdc.border_top +
+			pinfo->lcdc.border_bottom;
 }
 
 /*

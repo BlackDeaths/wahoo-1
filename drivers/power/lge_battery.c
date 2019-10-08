@@ -16,8 +16,8 @@
 #include <linux/platform_device.h>
 #include <linux/power_supply.h>
 #include <linux/slab.h>
-#include <linux/wahoo_info.h>
 #include <linux/wakelock.h>
+#include <linux/wahoo_info.h>
 
 #define BATT_DRV_NAME	"lge_battery"
 
@@ -680,6 +680,28 @@ static int bm_init(struct battery_manager *bm)
 		return -EPROBE_DEFER;
 	}
 
+	rc = bm_get_property(bm->bms_psy,
+			     POWER_SUPPLY_PROP_RESISTANCE_ID, &batt_id);
+	if (rc < 0) {
+		bm->batt_id = BM_BATT_TOCAD;
+	} else {
+		if (!batt_id) {
+			pr_bm(ERROR, "Battery id is zero, deferring probe!\n");
+			return -EPROBE_DEFER;
+		}
+
+		for (i = 0; i < BM_BATT_MAX; i++) {
+			if (valid_batt_id[i].min <= batt_id &&
+			    valid_batt_id[i].max >= batt_id)
+				break;
+		}
+		if (i == BM_BATT_MAX) {
+			pr_bm(ERROR, "Couldn't get valid battery id\n");
+			return -EINVAL;
+		}
+		bm->batt_id = i;
+	}
+
 	rc = bm_get_property(bm->batt_psy,
 			     POWER_SUPPLY_PROP_STATUS, &bm->chg_status);
 	if (rc < 0)
@@ -704,28 +726,6 @@ static int bm_init(struct battery_manager *bm)
 			     POWER_SUPPLY_PROP_PRESENT, &bm->chg_present);
 	if (rc < 0)
 		bm->chg_present = 0;
-
-	rc = bm_get_property(bm->bms_psy,
-			     POWER_SUPPLY_PROP_RESISTANCE_ID, &batt_id);
-	if (rc < 0) {
-		bm->batt_id = BM_BATT_TOCAD;
-	} else {
-		if (!batt_id) {
-			pr_bm(ERROR, "Battery id is zero, deferring probe!\n");
-			return -EPROBE_DEFER;
-		}
-
-		for (i = 0; i < BM_BATT_MAX; i++) {
-			if (valid_batt_id[i].min <= batt_id &&
-			    valid_batt_id[i].max >= batt_id)
-				break;
-		}
-		if (i == BM_BATT_MAX) {
-			pr_bm(ERROR, "Couldn't get valid battery id\n");
-			return -EINVAL;
-		}
-		bm->batt_id = i;
-	}
 
 	if (bm->chg_present) {
 		bm->demo_iusb = 1;
@@ -770,6 +770,13 @@ static int lge_battery_probe(struct platform_device *pdev)
 {
 	struct battery_manager *bm;
 	int rc = 0;
+
+#ifndef MODULE
+	if (is_google_walleye()) {
+		pr_bm(ERROR, "This is not the Pixel 2 XL, bailing out...\n");
+		return -ENODEV;
+	}
+#endif
 
 	bm = devm_kzalloc(&pdev->dev, sizeof(struct battery_manager),
 			  GFP_KERNEL);
@@ -866,9 +873,6 @@ static struct platform_driver lge_battery_driver = {
 static int __init lge_battery_init(void)
 {
 	int ret;
-
-	if (!is_google_taimen())
-		return -ENODEV;
 
 	ret = platform_device_register(&lge_battery_pdev);
 	if (ret < 0) {

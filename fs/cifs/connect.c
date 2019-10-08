@@ -612,7 +612,7 @@ get_server_iovec(struct TCP_Server_Info *server, unsigned int nr_segs)
 		return server->iov;
 
 	/* not big enough -- allocate a new one and release the old */
-	new_iov = kmalloc(sizeof(*new_iov) * nr_segs, GFP_NOFS);
+	new_iov = kmalloc_array(nr_segs, sizeof(*new_iov), GFP_NOFS);
 	if (new_iov) {
 		kfree(server->iov);
 		server->iov = new_iov;
@@ -2458,7 +2458,7 @@ cifs_put_smb_ses(struct cifs_ses *ses)
 
 #ifdef CONFIG_KEYS
 
-/* strlen("cifs:a:") + CIFS_MAX_DOMAINNAME_LEN + 1 */
+/* DSTRLEN("cifs:a:") + CIFS_MAX_DOMAINNAME_LEN + 1 */
 #define CIFSCREDS_DESC_SIZE (7 + CIFS_MAX_DOMAINNAME_LEN + 1)
 
 /* Populate username and pw fields from keyring if possible */
@@ -2466,7 +2466,6 @@ static int
 cifs_set_cifscreds(struct smb_vol *vol, struct cifs_ses *ses)
 {
 	int rc = 0;
-	int is_domain = 0;
 	const char *delim, *payload;
 	char *desc;
 	ssize_t len;
@@ -2514,7 +2513,6 @@ cifs_set_cifscreds(struct smb_vol *vol, struct cifs_ses *ses)
 			rc = PTR_ERR(key);
 			goto out_err;
 		}
-		is_domain = 1;
 	}
 
 	down_read(&key->sem);
@@ -2570,26 +2568,6 @@ cifs_set_cifscreds(struct smb_vol *vol, struct cifs_ses *ses)
 		kfree(vol->username);
 		vol->username = NULL;
 		goto out_key_put;
-	}
-
-	/*
-	 * If we have a domain key then we must set the domainName in the
-	 * for the request.
-	 */
-	if (is_domain && ses->domainName) {
-		vol->domainname = kstrndup(ses->domainName,
-					   strlen(ses->domainName),
-					   GFP_KERNEL);
-		if (!vol->domainname) {
-			cifs_dbg(FYI, "Unable to allocate %zd bytes for "
-				 "domain\n", len);
-			rc = -ENOMEM;
-			kfree(vol->username);
-			vol->username = NULL;
-			kzfree(vol->password);
-			vol->password = NULL;
-			goto out_key_put;
-		}
 	}
 
 out_key_put:
@@ -4006,7 +3984,7 @@ CIFSTCon(const unsigned int xid, struct cifs_ses *ses,
 		bcc_ptr += strlen(tree) + 1;
 	}
 	strcpy(bcc_ptr, "?????");
-	bcc_ptr += strlen("?????");
+	bcc_ptr += DSTRLEN("?????");
 	bcc_ptr += 1;
 	count = bcc_ptr - &pSMB->Password[0];
 	pSMB->hdr.smb_buf_length = cpu_to_be32(be32_to_cpu(

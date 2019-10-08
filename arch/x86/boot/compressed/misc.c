@@ -11,7 +11,6 @@
 
 #include "misc.h"
 #include "../string.h"
-#include <asm/bootparam_utils.h>
 
 /* WARNING!!
  * This code is compiled with -fPIC and it is relocated dynamically
@@ -464,4 +463,9 @@ asmlinkage __visible void *decompress_kernel(void *rmode, memptr heap,
 		handle_relocations(output, output_len);
 	debug_putstr("done.\nBooting the kernel.\n");
 	return output;
+}
+
+void fortify_panic(const char *name)
+{
+	error("detected buffer overflow");
 }

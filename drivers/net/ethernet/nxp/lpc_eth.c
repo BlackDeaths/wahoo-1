@@ -851,7 +851,8 @@ static int lpc_mii_init(struct netdata_local *pldat)
 	pldat->mii_bus->priv = pldat;
 	pldat->mii_bus->parent = &pldat->pdev->dev;
 
-	pldat->mii_bus->irq = kmalloc(sizeof(int) * PHY_MAX_ADDR, GFP_KERNEL);
+	pldat->mii_bus->irq = kmalloc_array(PHY_MAX_ADDR, sizeof(int),
+					    GFP_KERNEL);
 	if (!pldat->mii_bus->irq) {
 		err = -ENOMEM;
 		goto err_out_1;
@@ -1417,14 +1418,13 @@ static int lpc_eth_drv_probe(struct platform_device *pdev)
 	pldat->dma_buff_base_p = dma_handle;
 
 	netdev_dbg(ndev, "IO address space     :%pR\n", res);
-	netdev_dbg(ndev, "IO address size      :%zd\n",
-			(size_t)resource_size(res));
+	netdev_dbg(ndev, "IO address size      :%d\n", resource_size(res));
 	netdev_dbg(ndev, "IO address (mapped)  :0x%p\n",
 			pldat->net_base);
 	netdev_dbg(ndev, "IRQ number           :%d\n", ndev->irq);
-	netdev_dbg(ndev, "DMA buffer size      :%zd\n", pldat->dma_buff_size);
-	netdev_dbg(ndev, "DMA buffer P address :%pad\n",
-			&pldat->dma_buff_base_p);
+	netdev_dbg(ndev, "DMA buffer size      :%d\n", pldat->dma_buff_size);
+	netdev_dbg(ndev, "DMA buffer P address :0x%08x\n",
+			pldat->dma_buff_base_p);
 	netdev_dbg(ndev, "DMA buffer V address :0x%p\n",
 			pldat->dma_buff_base_v);
 
@@ -1471,8 +1471,8 @@ static int lpc_eth_drv_probe(struct platform_device *pdev)
 	if (ret)
 		goto err_out_unregister_netdev;
 
-	netdev_info(ndev, "LPC mac at 0x%08lx irq %d\n",
-	       (unsigned long)res->start, ndev->irq);
+	netdev_info(ndev, "LPC mac at 0x%08x irq %d\n",
+	       res->start, ndev->irq);
 
 	phydev = pldat->phy_dev;
 

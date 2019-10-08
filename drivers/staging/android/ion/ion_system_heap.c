@@ -2,7 +2,7 @@
  * drivers/staging/android/ion/ion_system_heap.c
  *
  * Copyright (C) 2011 Google, Inc.
- * Copyright (c) 2011-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2018, The Linux Foundation. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -99,6 +99,11 @@ size_t ion_system_heap_secure_page_pool_total(struct ion_heap *heap,
 	}
 
 	return total << PAGE_SHIFT;
+}
+
+static int ion_heap_is_system_heap_type(enum ion_heap_type type)
+{
+	return type == ((enum ion_heap_type)ION_HEAP_TYPE_SYSTEM);
 }
 
 static struct page *alloc_buffer_page(struct ion_system_heap *heap,
@@ -261,9 +266,6 @@ static int alloc_from_pool_preferred(struct page_info *info,
 	struct page *page;
 	int i;
 
-	if (buffer->flags & ION_FLAG_POOL_FORCE_ALLOC)
-		goto force_alloc;
-
 	info = kmalloc(sizeof(*info), GFP_KERNEL);
 	if (!info)
 		return NULL;
@@ -295,7 +297,6 @@ static int alloc_from_pool_preferred(struct page_info *info,
 	}
 
 	kfree(info);
-force_alloc:
 	return alloc_largest_available(heap, buffer, size, max_order);
 
 force_alloc:
@@ -361,6 +362,13 @@ static int ion_system_heap_allocate(struct ion_heap *heap,
 	int vmid = get_secure_vmid(buffer->flags);
 	struct device *dev = heap->priv;
 	struct page_info info_onstack[SZ_4K / sizeof(struct page_info)];
+
+	if (ion_heap_is_system_heap_type(buffer->heap->type) &&
+	    is_secure_vmid_valid(vmid)) {
+		pr_info("%s: System heap doesn't support secure allocations\n",
+			__func__);
+		return -EINVAL;
+	}
 
 	if (align > PAGE_SIZE)
 		return -EINVAL;

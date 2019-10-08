@@ -1426,10 +1426,11 @@ static const struct attribute_group attr_group = {
 	.attrs = htc_attrs,
 };
 
-#ifndef CONFIG_WAKE_GESTURES
-static
-#endif
+#ifdef CONFIG_WAKE_GESTURES
 struct kobject *android_touch_kobj;
+#else
+static struct kobject *android_touch_kobj;
+#endif
 static int synaptics_rmi4_sysfs_init(struct synaptics_rmi4_data *rmi4_data, bool enable)
 {
 	if (enable) {
@@ -2527,11 +2528,9 @@ static irqreturn_t synaptics_rmi4_irq(int irq, void *data)
 #endif
 
 	/* prevent CPU from entering deep sleep */
-	pm_qos_update_request(&rmi4_data->pm_touch_req, 100);
-	pm_qos_update_request(&rmi4_data->pm_i2c_req, 100);
+	pm_qos_update_request(&rmi4_data->pm_qos_req, 100);
 	synaptics_rmi4_sensor_report(rmi4_data, true);
-	pm_qos_update_request(&rmi4_data->pm_i2c_req, PM_QOS_DEFAULT_VALUE);
-	pm_qos_update_request(&rmi4_data->pm_touch_req, PM_QOS_DEFAULT_VALUE);
+	pm_qos_update_request(&rmi4_data->pm_qos_req, PM_QOS_DEFAULT_VALUE);
 
 exit:
 	return IRQ_HANDLED;
@@ -3663,9 +3662,11 @@ static int synaptics_rmi4_f12_init(struct synaptics_rmi4_data *rmi4_data,
 	if (rmi4_data->report_data != NULL)
 		kfree(rmi4_data->report_data);
 	rmi4_data->temp_report_data =
-			kzalloc(4 * rmi4_data->num_of_tx * rmi4_data->num_of_rx, GFP_KERNEL);
+			kzalloc(array3_size(4, rmi4_data->num_of_tx, rmi4_data->num_of_rx),
+				GFP_KERNEL);
 	rmi4_data->report_data =
-			kzalloc(4 * rmi4_data->num_of_tx * rmi4_data->num_of_rx, GFP_KERNEL);
+			kzalloc(array3_size(4, rmi4_data->num_of_tx, rmi4_data->num_of_rx),
+				GFP_KERNEL);
 	if(rmi4_data->temp_report_data == NULL || rmi4_data->report_data == NULL) {
 		dev_err(rmi4_data->pdev->dev.parent,
 				"%s report data init fail\n",
@@ -3721,7 +3722,7 @@ static int synaptics_rmi4_f1a_alloc_mem(struct synaptics_rmi4_data *rmi4_data,
 
 	f1a->max_count = f1a->button_query.max_button_count + 1;
 
-	f1a->button_control.txrx_map = kzalloc(f1a->max_count * 2, GFP_KERNEL);
+	f1a->button_control.txrx_map = kcalloc(f1a->max_count, 2, GFP_KERNEL);
 	if (!f1a->button_control.txrx_map) {
 		dev_err(rmi4_data->pdev->dev.parent,
 				"%s: Failed to alloc mem for tx rx mapping\n",
@@ -4058,7 +4059,9 @@ static int synaptics_rmi4_f54_init(struct synaptics_rmi4_data *rmi4_data,
 	if (rmi4_data->report_data_32 != NULL)
 		kfree(rmi4_data->report_data_32);
 	rmi4_data->report_data_32 =
-			kzalloc(4 * (rmi4_data->num_of_tx + rmi4_data->num_of_rx), GFP_KERNEL);
+			kcalloc(4,
+				(rmi4_data->num_of_tx + rmi4_data->num_of_rx),
+				GFP_KERNEL);
 	if(rmi4_data->report_data_32 == NULL) {
 		dev_err(rmi4_data->pdev->dev.parent,
 				"%s report data 32 init fail\n",
@@ -4094,9 +4097,6 @@ static void synaptics_rmi4_empty_fn_list(struct synaptics_rmi4_data *rmi4_data)
 		}
 	}
 	INIT_LIST_HEAD(&rmi->support_fn_list);
-
-	rmi4_data->f11_wakeup_gesture = false;
-	rmi4_data->f12_wakeup_gesture = false;
 
 	return;
 }
@@ -5571,8 +5571,6 @@ static int synaptics_rmi4_probe(struct platform_device *pdev)
 	struct synaptics_rmi4_data *rmi4_data;
 	const struct synaptics_dsx_hw_interface *hw_if;
 	const struct synaptics_dsx_board_data *bdata;
-	unsigned int i2c_irq;
-
 	hw_if = pdev->dev.platform_data;
 	if (!hw_if) {
 		dev_err(&pdev->dev,
@@ -5713,17 +5711,7 @@ static int synaptics_rmi4_probe(struct platform_device *pdev)
 		platform_get_irq_byname(to_platform_device(pdev->dev.parent),
 					"tp_direct_interrupt");
 
-	i2c_irq = synaptics_rmi4_i2c_irq();
-	irq_set_perf_affinity(i2c_irq);
-
-	rmi4_data->pm_i2c_req.type = PM_QOS_REQ_AFFINE_IRQ;
-	rmi4_data->pm_i2c_req.irq = i2c_irq;
-	pm_qos_add_request(&rmi4_data->pm_i2c_req, PM_QOS_CPU_DMA_LATENCY,
-			   PM_QOS_DEFAULT_VALUE);
-
-	rmi4_data->pm_touch_req.type = PM_QOS_REQ_AFFINE_IRQ;
-	rmi4_data->pm_touch_req.irq = rmi4_data->irq;
-	pm_qos_add_request(&rmi4_data->pm_touch_req, PM_QOS_CPU_DMA_LATENCY,
+	pm_qos_add_request(&rmi4_data->pm_qos_req, PM_QOS_CPU_DMA_LATENCY,
 			   PM_QOS_DEFAULT_VALUE);
 
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_SYNAPTICS_DSX_CORE_HTC)
@@ -5851,6 +5839,7 @@ err_virtual_buttons:
 	synaptics_rmi4_irq_enable(rmi4_data, false, false);
 
 err_enable_irq:
+	pm_qos_remove_request(&rmi4_data->pm_qos_req);
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_SYNAPTICS_DSX_CORE_HTC)
 	free_irq(rmi4_data->irq, rmi4_data);
 err_request_irq:
@@ -5947,6 +5936,7 @@ static int synaptics_rmi4_remove(struct platform_device *pdev)
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_SYNAPTICS_DSX_CORE_HTC)
 	free_irq(rmi4_data->irq, rmi4_data);
 #endif
+	pm_qos_remove_request(&rmi4_data->pm_qos_req);
 
 #ifdef CONFIG_FB
 	fb_unregister_client(&rmi4_data->fb_notifier);
@@ -6053,12 +6043,6 @@ static void synaptics_rmi4_f12_wg(struct synaptics_rmi4_data *rmi4_data,
 	list_for_each_entry(fhandler, &rmi->support_fn_list, link) {
 		if (fhandler->fn_number == SYNAPTICS_RMI4_F12)
 			break;
-	}
-
-	if (!fhandler->extra) {
-		pr_err("%s: fhandler->extra=NULL, fn_number=%hhu", __func__,
-				fhandler->fn_number);
-		return;
 	}
 
 	extra_data = (struct synaptics_rmi4_f12_extra_data *)fhandler->extra;
@@ -6329,11 +6313,16 @@ static int synaptics_rmi4_resume(struct device *dev)
 	if (rmi4_data->stay_awake)
 		return 0;
 
-	if (!wg_switch && IS_ENABLED(CONFIG_WAKE_GESTURES)) {
+#ifdef CONFIG_WAKE_GESTURES
+	if (!wg_switch) {
+#endif
 	gpio_set_value(rmi4_data->hw_if->board_data->switch_gpio, 0);
 	dev_dbg(rmi4_data->pdev->dev.parent, "%s: Switch I2C mux to AP\n",
 			__func__);
+
+#ifdef CONFIG_WAKE_GESTURES
 	}
+#endif
 	synaptics_rmi4_free_fingers(rmi4_data);
 
 #ifdef CONFIG_WAKE_GESTURES

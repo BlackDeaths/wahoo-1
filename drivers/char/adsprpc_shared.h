@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -27,7 +27,6 @@
 #define FASTRPC_IOCTL_GETINFO	_IOWR('R', 8, uint32_t)
 #define FASTRPC_IOCTL_GETPERF	_IOWR('R', 9, struct fastrpc_ioctl_perf)
 #define FASTRPC_IOCTL_INIT_ATTRS _IOWR('R', 10, struct fastrpc_ioctl_init_attrs)
-#define FASTRPC_IOCTL_CONTROL	_IOWR('R', 12, struct fastrpc_ioctl_control)
 
 #define FASTRPC_GLINK_GUID "fastrpcglink-apps-dsp"
 #define FASTRPC_SMD_GUID "fastrpcsmd-apps-dsp"
@@ -114,7 +113,7 @@ do {\
 
 struct remote_buf64 {
 	uint64_t pv;
-	int64_t len;
+	uint64_t len;
 };
 
 union remote_arg64 {
@@ -164,7 +163,7 @@ struct fastrpc_ioctl_init {
 struct fastrpc_ioctl_init_attrs {
 		struct fastrpc_ioctl_init init;
 		int attrs;
-		int siglen;
+		unsigned int siglen;
 };
 
 struct fastrpc_ioctl_munmap {
@@ -175,7 +174,7 @@ struct fastrpc_ioctl_munmap {
 struct fastrpc_ioctl_mmap {
 	int fd;				/* ion fd */
 	uint32_t flags;			/* flags for dsp to map with */
-	uintptr_t vaddrin;	/* optional virtual address */
+	uintptr_t vaddrin;		/* optional virtual address */
 	size_t size;			/* size */
 	uintptr_t vaddrout;		/* dsps virtual address */
 };
@@ -185,19 +184,6 @@ struct fastrpc_ioctl_perf {			/* kernel performance data */
 	uint32_t numkeys;
 	uintptr_t keys;
 };
-
-#define FASTRPC_CONTROL_KALLOC (3)
-struct fastrpc_ctrl_kalloc {
-	uint32_t kalloc_support; /* Remote memory allocation from kernel */
-};
-
-struct fastrpc_ioctl_control {
-	uint32_t req;
-	union {
-		struct fastrpc_ctrl_kalloc kalloc;
-	};
-};
-
 
 struct smq_null_invoke {
 	uint64_t ctx;			/* invoke caller context */
@@ -242,7 +228,7 @@ static inline struct smq_invoke_buf *smq_invoke_buf_start(remote_arg64_t *pra,
 static inline struct smq_phy_page *smq_phy_page_start(uint32_t sc,
 						struct smq_invoke_buf *buf)
 {
-	uint32_t nTotal = REMOTE_SCALARS_INBUFS(sc)+REMOTE_SCALARS_OUTBUFS(sc);
+	uint64_t nTotal = REMOTE_SCALARS_INBUFS(sc)+REMOTE_SCALARS_OUTBUFS(sc);
 	return (struct smq_phy_page *)(&buf[nTotal]);
 }
 

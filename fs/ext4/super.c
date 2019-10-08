@@ -706,6 +706,36 @@ __acquires(bitlock)
 	return;
 }
 
+void ext4_mark_group_bitmap_corrupted(struct super_block *sb,
+				     ext4_group_t group,
+				     unsigned int flags)
+{
+	struct ext4_sb_info *sbi = EXT4_SB(sb);
+	struct ext4_group_info *grp = ext4_get_group_info(sb, group);
+	struct ext4_group_desc *gdp = ext4_get_group_desc(sb, group, NULL);
+
+	if ((flags & EXT4_GROUP_INFO_BBITMAP_CORRUPT) &&
+	    !EXT4_MB_GRP_BBITMAP_CORRUPT(grp)) {
+		percpu_counter_sub(&sbi->s_freeclusters_counter,
+					grp->bb_free);
+		set_bit(EXT4_GROUP_INFO_BBITMAP_CORRUPT_BIT,
+			&grp->bb_state);
+	}
+
+	if ((flags & EXT4_GROUP_INFO_IBITMAP_CORRUPT) &&
+	    !EXT4_MB_GRP_IBITMAP_CORRUPT(grp)) {
+		if (gdp) {
+			int count;
+
+			count = ext4_free_inodes_count(sb, gdp);
+			percpu_counter_sub(&sbi->s_freeinodes_counter,
+					   count);
+		}
+		set_bit(EXT4_GROUP_INFO_IBITMAP_CORRUPT_BIT,
+			&grp->bb_state);
+	}
+}
+
 void ext4_update_dynamic_rev(struct super_block *sb)
 {
 	struct ext4_super_block *es = EXT4_SB(sb)->s_es;
@@ -1923,12 +1953,12 @@ static int ext4_setup_super(struct super_block *sb, struct ext4_super_block *es,
 			    int read_only)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
-	int res = 0;
+	int err = 0;
 
 	if (le32_to_cpu(es->s_rev_level) > EXT4_MAX_SUPP_REV) {
 		ext4_msg(sb, KERN_ERR, "revision level too high, "
 			 "forcing read-only mode");
-		res = MS_RDONLY;
+		err = -EROFS;
 	}
 	if (read_only)
 		goto done;
@@ -1961,7 +1991,7 @@ static int ext4_setup_super(struct super_block *sb, struct ext4_super_block *es,
 	if (sbi->s_journal)
 		ext4_set_feature_journal_needs_recovery(sb);
 
-	res = ext4_commit_super(sb, 1);
+	err = ext4_commit_super(sb, 1);
 done:
 	if (test_opt(sb, DEBUG))
 		printk(KERN_INFO "[EXT4 FS bs=%lu, gc=%u, "
@@ -1973,7 +2003,7 @@ done:
 			sbi->s_mount_opt, sbi->s_mount_opt2);
 
 	cleancache_init_fs(sb);
-	return res;
+	return err;
 }
 
 int ext4_alloc_flex_bg_array(struct super_block *sb, ext4_group_t ngroup)
@@ -3995,8 +4025,12 @@ no_journal:
 		goto failed_mount4;
 	}
 
-	if (ext4_setup_super(sb, es, sb->s_flags & MS_RDONLY))
+	ret = ext4_setup_super(sb, es, sb->s_flags & MS_RDONLY);
+	if (ret == -EROFS) {
 		sb->s_flags |= MS_RDONLY;
+		ret = 0;
+	} else if (ret)
+		goto failed_mount4a;
 
 	/* determine the minimum size of new large inodes, if present */
 	if (sbi->s_inode_size > EXT4_GOOD_OLD_INODE_SIZE) {
@@ -4516,9 +4550,6 @@ static int ext4_commit_super(struct super_block *sb, int sync)
 	if (sync) {
 		error = __sync_dirty_buffer(sbh,
 			test_opt(sb, BARRIER) ? WRITE_FUA : WRITE_SYNC);
-		if (error && !buffer_write_io_error(sbh))
-			return error;
-
 		if (buffer_write_io_error(sbh)) {
 			ext4_msg(sb, KERN_ERR, "I/O error while writing "
 			       "superblock");
@@ -4921,6 +4952,7 @@ static int ext4_remount(struct super_block *sb, int *flags, char *data)
 			if (sbi->s_journal)
 				ext4_clear_journal_err(sb, es);
 			sbi->s_mount_state = le16_to_cpu(es->s_state);
+
 			err = ext4_setup_super(sb, es, 0);
 			if (err)
 				goto restore_opts;
@@ -4951,7 +4983,8 @@ static int ext4_remount(struct super_block *sb, int *flags, char *data)
 	ext4_setup_system_zone(sb);
 	if (sbi->s_journal == NULL && !(old_sb_flags & MS_RDONLY)) {
 		err = ext4_commit_super(sb, 1);
-		goto restore_opts;
+		if (err)
+			goto restore_opts;
 	}
 
 #ifdef CONFIG_QUOTA

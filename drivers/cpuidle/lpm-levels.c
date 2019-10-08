@@ -61,6 +61,31 @@
 #define PSCI_AFFINITY_LEVEL(lvl) ((lvl & 0x3) << 24)
 static remote_spinlock_t scm_handoff_lock;
 
+enum {
+	MSM_LPM_LVL_DBG_SUSPEND_LIMITS = BIT(0),
+	MSM_LPM_LVL_DBG_IDLE_LIMITS = BIT(1),
+};
+
+enum debug_event {
+	CPU_ENTER,
+	CPU_EXIT,
+	CLUSTER_ENTER,
+	CLUSTER_EXIT,
+	PRE_PC_CB,
+	CPU_HP_STARTING,
+	CPU_HP_DYING,
+};
+
+struct lpm_debug {
+	cycle_t time;
+	enum debug_event evt;
+	int cpu;
+	uint32_t arg1;
+	uint32_t arg2;
+	uint32_t arg3;
+	uint32_t arg4;
+};
+
 struct lpm_cluster *lpm_root_node;
 
 #define MAXSAMPLES 5
@@ -94,7 +119,10 @@ static DEFINE_PER_CPU(struct lpm_history, hist);
 static DEFINE_PER_CPU(struct lpm_cluster*, cpu_cluster);
 static bool suspend_in_progress;
 static struct hrtimer lpm_hrtimer;
-static struct hrtimer histtimer;
+static DEFINE_PER_CPU(struct hrtimer, histtimer);
+static struct lpm_debug *lpm_debug;
+static phys_addr_t lpm_debug_phys;
+static const int num_dbg_elements = 0x100;
 static int lpm_cpu_callback(struct notifier_block *cpu_nb,
 				unsigned long action, void *hcpu);
 
@@ -123,10 +151,6 @@ static bool print_parsed_dt;
 module_param_named(
 	print_parsed_dt, print_parsed_dt, bool, S_IRUGO | S_IWUSR | S_IWGRP
 );
-
-static bool sleep_disabled;
-module_param_named(sleep_disabled,
-	sleep_disabled, bool, S_IRUGO | S_IWUSR | S_IWGRP);
 
 s32 msm_cpuidle_get_deep_idle_latency(void)
 {
@@ -282,6 +306,31 @@ int lpm_get_latency(struct latency_level *level, uint32_t *latency)
 }
 EXPORT_SYMBOL(lpm_get_latency);
 
+static void update_debug_pc_event(enum debug_event event, uint32_t arg1,
+		uint32_t arg2, uint32_t arg3, uint32_t arg4)
+{
+	struct lpm_debug *dbg;
+	int idx;
+	static DEFINE_SPINLOCK(debug_lock);
+	static int pc_event_index;
+
+	if (!lpm_debug)
+		return;
+
+	spin_lock(&debug_lock);
+	idx = pc_event_index++;
+	dbg = &lpm_debug[idx & (num_dbg_elements - 1)];
+
+	dbg->evt = event;
+	dbg->time = arch_counter_get_cntvct();
+	dbg->cpu = raw_smp_processor_id();
+	dbg->arg1 = arg1;
+	dbg->arg2 = arg2;
+	dbg->arg3 = arg3;
+	dbg->arg4 = arg4;
+	spin_unlock(&debug_lock);
+}
+
 static int lpm_cpu_callback(struct notifier_block *cpu_nb,
 	unsigned long action, void *hcpu)
 {
@@ -290,10 +339,16 @@ static int lpm_cpu_callback(struct notifier_block *cpu_nb,
 
 	switch (action & ~CPU_TASKS_FROZEN) {
 	case CPU_DYING:
+		update_debug_pc_event(CPU_HP_DYING, cpu,
+				cluster->num_children_in_sync.bits[0],
+				cluster->child_cpus.bits[0], false);
 		cluster_prepare(cluster, get_cpu_mask((unsigned int) cpu),
 					NR_LPM_LEVELS, false, 0);
 		break;
 	case CPU_STARTING:
+		update_debug_pc_event(CPU_HP_STARTING, cpu,
+				cluster->num_children_in_sync.bits[0],
+				cluster->child_cpus.bits[0], false);
 		cluster_unprepare(cluster, get_cpu_mask((unsigned int) cpu),
 					NR_LPM_LEVELS, false, 0);
 		break;
@@ -310,7 +365,10 @@ static enum hrtimer_restart lpm_hrtimer_cb(struct hrtimer *h)
 
 static void histtimer_cancel(void)
 {
-	hrtimer_try_to_cancel(&histtimer);
+	unsigned int cpu = raw_smp_processor_id();
+	struct hrtimer *cpu_histtimer = &per_cpu(histtimer, cpu);
+
+	hrtimer_try_to_cancel(cpu_histtimer);
 }
 
 static enum hrtimer_restart histtimer_fn(struct hrtimer *h)
@@ -326,9 +384,11 @@ static void histtimer_start(uint32_t time_us)
 {
 	uint64_t time_ns = time_us * NSEC_PER_USEC;
 	ktime_t hist_ktime = ns_to_ktime(time_ns);
+	unsigned int cpu = raw_smp_processor_id();
+	struct hrtimer *cpu_histtimer = &per_cpu(histtimer, cpu);
 
-	histtimer.function = histtimer_fn;
-	hrtimer_start(&histtimer, hist_ktime, HRTIMER_MODE_REL_PINNED);
+	cpu_histtimer->function = histtimer_fn;
+	hrtimer_start(cpu_histtimer, hist_ktime, HRTIMER_MODE_REL_PINNED);
 }
 
 static void cluster_timer_init(struct lpm_cluster *cluster)
@@ -616,22 +676,21 @@ static int cpu_power_select(struct cpuidle_device *dev,
 	int best_level = -1;
 	uint32_t latency_us = pm_qos_request_for_cpu(PM_QOS_CPU_DMA_LATENCY,
 							dev->cpu);
-	uint32_t sleep_us =
-		(uint32_t)(ktime_to_us(tick_nohz_get_sleep_length()));
+	s64 sleep_us = ktime_to_us(tick_nohz_get_sleep_length());
 	uint32_t modified_time_us = 0;
 	uint32_t next_event_us = 0;
 	int i, idx_restrict;
 	uint32_t lvl_latency_us = 0;
 	uint64_t predicted = 0;
 	uint32_t htime = 0, idx_restrict_time = 0;
-	uint32_t next_wakeup_us = sleep_us;
+	uint32_t next_wakeup_us = (uint32_t)sleep_us;
 	uint32_t *min_residency = get_per_cpu_min_residency(dev->cpu);
 	uint32_t *max_residency = get_per_cpu_max_residency(dev->cpu);
 
 	if (!cpu)
 		return -EINVAL;
 
-	if (sleep_disabled)
+	if (sleep_us < 0)
 		return 0;
 
 	idx_restrict = cpu->nlevels + 1;
@@ -652,7 +711,7 @@ static int cpu_power_select(struct cpuidle_device *dev,
 
 		lvl_latency_us = pwr_params->latency_us;
 
-		if (latency_us <= lvl_latency_us)
+		if (latency_us < lvl_latency_us)
 			break;
 
 		if (next_event_us) {
@@ -673,8 +732,8 @@ static int cpu_power_select(struct cpuidle_device *dev,
 			if (next_wakeup_us > max_residency[i]) {
 				predicted = lpm_cpuidle_predict(dev, cpu,
 					&idx_restrict, &idx_restrict_time);
-				if (predicted < min_residency[i])
-					predicted = 0;
+				if (predicted && (predicted < min_residency[i]))
+					predicted = min_residency[i];
 			} else
 				invalidate_predict_history(dev);
 		}
@@ -998,7 +1057,7 @@ static int cluster_select(struct lpm_cluster *cluster, bool from_idle,
 					&level->num_cpu_votes))
 			continue;
 
-		if (from_idle && latency_us <= pwr_params->latency_us)
+		if (from_idle && latency_us < pwr_params->latency_us)
 			break;
 
 		if (sleep_us < pwr_params->time_overhead_us)
@@ -1042,14 +1101,21 @@ static int cluster_configure(struct lpm_cluster *cluster, int idx,
 		bool from_idle, int predicted)
 {
 	struct lpm_cluster_level *level = &cluster->levels[idx];
+	struct cpumask online_cpus;
 	int ret, i;
 
+	cpumask_and(&online_cpus, &cluster->num_children_in_sync,
+					cpu_online_mask);
+
 	if (!cpumask_equal(&cluster->num_children_in_sync, &cluster->child_cpus)
-			|| is_IPI_pending(&cluster->num_children_in_sync)) {
+			|| is_IPI_pending(&online_cpus)) {
 		return -EPERM;
 	}
 
 	if (idx != cluster->default_level) {
+		update_debug_pc_event(CLUSTER_ENTER, idx,
+			cluster->num_children_in_sync.bits[0],
+			cluster->child_cpus.bits[0], from_idle);
 		trace_cluster_enter(cluster->cluster_name, idx,
 			cluster->num_children_in_sync.bits[0],
 			cluster->child_cpus.bits[0], from_idle);
@@ -1252,6 +1318,9 @@ static void cluster_unprepare(struct lpm_cluster *cluster,
 		msm_mpm_exit_sleep(from_idle);
 	}
 
+	update_debug_pc_event(CLUSTER_EXIT, cluster->last_level,
+			cluster->num_children_in_sync.bits[0],
+			cluster->child_cpus.bits[0], from_idle);
 	trace_cluster_exit(cluster->cluster_name, cluster->last_level,
 			cluster->num_children_in_sync.bits[0],
 			cluster->child_cpus.bits[0], from_idle);
@@ -1393,9 +1462,13 @@ bool psci_enter_sleep(struct lpm_cluster *cluster, int idx, bool from_idle)
 		state_id |= (power_state | affinity_level
 			| cluster->cpu->levels[idx].psci_id);
 
+		update_debug_pc_event(CPU_ENTER, state_id,
+						0xdeaffeed, 0xdeaffeed, true);
 		stop_critical_timings();
 		success = !arm_cpuidle_suspend(state_id);
 		start_critical_timings();
+		update_debug_pc_event(CPU_EXIT, state_id,
+						success, 0xdeaffeed, true);
 		return success;
 	}
 }
@@ -1418,9 +1491,13 @@ bool psci_enter_sleep(struct lpm_cluster *cluster, int idx, bool from_idle)
 		state_id |= (power_state | affinity_level
 			| cluster->cpu->levels[idx].psci_id);
 
+		update_debug_pc_event(CPU_ENTER, state_id,
+						0xdeaffeed, 0xdeaffeed, true);
 		stop_critical_timings();
 		success = !arm_cpuidle_suspend(state_id);
 		start_critical_timings();
+		update_debug_pc_event(CPU_EXIT, state_id,
+						success, 0xdeaffeed, true);
 		return success;
 	}
 }
@@ -1604,7 +1681,8 @@ static int cluster_cpuidle_register(struct lpm_cluster *cl)
 		struct cpuidle_state *st = &cl->drv->states[i];
 		struct lpm_cpu_level *cpu_level = &cl->cpu->levels[i];
 		snprintf(st->name, CPUIDLE_NAME_LEN, "C%u\n", i);
-		snprintf(st->desc, CPUIDLE_DESC_LEN, cpu_level->name);
+		snprintf(st->desc, CPUIDLE_DESC_LEN, "%s",
+			cpu_level->name);
 		st->flags = 0;
 		st->exit_latency = cpu_level->pwr.latency_us;
 		st->power_usage = cpu_level->pwr.ss_power;
@@ -1657,7 +1735,7 @@ static void register_cpu_lpm_stats(struct lpm_cpu *cpu,
 	const char **level_name;
 	int i;
 
-	level_name = kzalloc(cpu->nlevels * sizeof(*level_name), GFP_KERNEL);
+	level_name = kcalloc(cpu->nlevels, sizeof(*level_name), GFP_KERNEL);
 
 	if (!level_name)
 		return;
@@ -1681,7 +1759,7 @@ static void register_cluster_lpm_stats(struct lpm_cluster *cl,
 	if (!cl)
 		return;
 
-	level_name = kzalloc(cl->nlevels * sizeof(*level_name), GFP_KERNEL);
+	level_name = kcalloc(cl->nlevels, sizeof(*level_name), GFP_KERNEL);
 
 	if (!level_name)
 		return;
@@ -1738,6 +1816,9 @@ static int lpm_suspend_enter(suspend_state_t state)
 	}
 	cpu_prepare(cluster, idx, false);
 	cluster_prepare(cluster, cpumask, idx, false, 0);
+	if (idx > 0)
+		update_debug_pc_event(CPU_ENTER, idx, 0xdeaffeed,
+					0xdeaffeed, false);
 
 	/*
 	 * Print the clocks which are enabled during system suspend
@@ -1749,6 +1830,10 @@ static int lpm_suspend_enter(suspend_state_t state)
 
 	BUG_ON(!use_psci);
 	psci_enter_sleep(cluster, idx, true);
+
+	if (idx > 0)
+		update_debug_pc_event(CPU_EXIT, idx, true, 0xdeaffeed,
+					false);
 
 	cluster_unprepare(cluster, cpumask, idx, false, 0);
 	cpu_unprepare(cluster, idx, false);
@@ -1765,6 +1850,9 @@ static const struct platform_suspend_ops lpm_suspend_ops = {
 static int lpm_probe(struct platform_device *pdev)
 {
 	int ret;
+	int size;
+	unsigned int cpu;
+	struct hrtimer *cpu_histtimer;
 	struct kobject *module_kobj = NULL;
 
 	get_online_cpus();
@@ -1787,7 +1875,11 @@ static int lpm_probe(struct platform_device *pdev)
 	 */
 	suspend_set_ops(&lpm_suspend_ops);
 	hrtimer_init(&lpm_hrtimer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
-	hrtimer_init(&histtimer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+	for_each_possible_cpu(cpu) {
+		cpu_histtimer = &per_cpu(histtimer, cpu);
+		hrtimer_init(cpu_histtimer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+	}
+
 	cluster_timer_init(lpm_root_node);
 
 	ret = remote_spin_lock_init(&scm_handoff_lock, SCM_HANDOFF_LOCK_ID);
@@ -1798,6 +1890,9 @@ static int lpm_probe(struct platform_device *pdev)
 		return ret;
 	}
 
+	size = num_dbg_elements * sizeof(struct lpm_debug);
+	lpm_debug = dma_alloc_coherent(&pdev->dev, size,
+			&lpm_debug_phys, GFP_KERNEL);
 	register_cluster_lpm_stats(lpm_root_node, NULL);
 
 	ret = cluster_cpuidle_register(lpm_root_node);
@@ -1900,6 +1995,8 @@ enum msm_pm_l2_scm_flag lpm_cpu_pre_pc_cb(unsigned int cpu)
 	 * It must be acquired before releasing the cluster lock.
 	 */
 unlock_and_return:
+	update_debug_pc_event(PRE_PC_CB, retflag, 0xdeadbeef, 0xdeadbeef,
+			0xdeadbeef);
 	trace_pre_pc_cb(retflag);
 	remote_spin_lock_rlock_id(&scm_handoff_lock,
 				  REMOTE_SPINLOCK_TID_START + cpu);

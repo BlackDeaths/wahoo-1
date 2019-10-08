@@ -4,6 +4,7 @@
 #include <linux/vmalloc.h>
 #include <linux/seq_file.h>
 #include <linux/debugfs.h>
+#include <linux/cpu.h>
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/mm_event.h>
@@ -52,6 +53,8 @@ static void record_vmstat(void)
 	vmstat.ws_activate = global_page_state(WORKINGSET_ACTIVATE);
 	vmstat.mapped = global_page_state(NR_FILE_MAPPED);
 
+	/* No want to make lock dependency between vmstat_lock and hotplug */
+	get_online_cpus();
 	for_each_online_cpu(cpu) {
 		struct vm_event_state *this = &per_cpu(vm_event_states, cpu);
 		unsigned long reclaim_steal = 0;
@@ -95,6 +98,7 @@ static void record_vmstat(void)
 		vmstat.compact_scan += this->event[COMPACTFREE_SCANNED] +
 					this->event[COMPACTMIGRATE_SCANNED];
 	}
+	put_online_cpus();
 	trace_mm_event_vmstat_record(&vmstat);
 }
 

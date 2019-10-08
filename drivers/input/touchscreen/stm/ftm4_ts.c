@@ -50,7 +50,6 @@
 #include <linux/regulator/consumer.h>
 #include <linux/of_gpio.h>
 #include <linux/of_irq.h>
-#include <linux/i2c/i2c-msm-v2.h>
 
 #ifdef CONFIG_TRUSTONIC_TRUSTED_UI
 #include <linux/trustedui.h>
@@ -836,15 +835,15 @@ static int fts_init(struct fts_ts_info *info)
 			return rc;
 		}
 		info->pFrame =
-			kzalloc(info->SenseChannelLength * info->ForceChannelLength * 2,
+			kzalloc(array3_size(info->SenseChannelLength, info->ForceChannelLength, 2),
 				GFP_KERNEL);
 		if (info->pFrame == NULL) {
 			tsp_debug_err(&info->client->dev,
 						"FTS pFrame kzalloc Failed\n");
 			return -ENOMEM;
 		}
-		info->cx_data = kzalloc(info->SenseChannelLength *
-						info->ForceChannelLength, GFP_KERNEL);
+		info->cx_data = kcalloc(info->SenseChannelLength,
+					info->ForceChannelLength, GFP_KERNEL);
 		if (!info->cx_data)
 			tsp_debug_err(&info->client->dev,
 					"%s: cx_data kzalloc Failed\n", __func__);
@@ -1350,8 +1349,7 @@ static irqreturn_t fts_interrupt_handler(int irq, void *handle)
 	unsigned short evtcount = 0;
 
 	/* prevent CPU from entering deep sleep */
-	pm_qos_update_request(&info->pm_touch_req, 100);
-	pm_qos_update_request(&info->pm_i2c_req, 100);
+	pm_qos_update_request(&info->pm_qos_req, 100);
 	evtcount = 0;
 
 	fts_read_reg(info, &regAdd[0], 3, (unsigned char *)&evtcount, 2);
@@ -1367,9 +1365,7 @@ static irqreturn_t fts_interrupt_handler(int irq, void *handle)
 				  FTS_EVENT_SIZE * evtcount);
 		fts_event_handler_type_b(info, info->data, evtcount);
 	}
-	pm_qos_update_request(&info->pm_i2c_req, PM_QOS_DEFAULT_VALUE);
-	pm_qos_update_request(&info->pm_touch_req, PM_QOS_DEFAULT_VALUE);
-
+	pm_qos_update_request(&info->pm_qos_req, PM_QOS_DEFAULT_VALUE);
 	return IRQ_HANDLED;
 }
 
@@ -1826,7 +1822,6 @@ static int fts_probe(struct i2c_client *client, const struct i2c_device_id *idp)
 	struct fts_ts_info *info = NULL;
 	static char fts_ts_phys[64] = { 0 };
 	struct power_supply_config psy_cfg = {};
-	struct i2c_msm_ctrl *ctrl;
 	int i = 0;
 
 /*
@@ -1956,19 +1951,6 @@ static int fts_probe(struct i2c_client *client, const struct i2c_device_id *idp)
 		goto err_enable_irq;
 	}
 
-	ctrl = client->dev.parent->driver_data;
-	irq_set_perf_affinity(ctrl->rsrcs.irq);
-
-	info->pm_i2c_req.type = PM_QOS_REQ_AFFINE_IRQ;
-	info->pm_i2c_req.irq = ctrl->rsrcs.irq;
-	pm_qos_add_request(&info->pm_i2c_req, PM_QOS_CPU_DMA_LATENCY,
-			   PM_QOS_DEFAULT_VALUE);
-
-	info->pm_touch_req.type = PM_QOS_REQ_AFFINE_IRQ;
-	info->pm_touch_req.irq = info->irq;
-	pm_qos_add_request(&info->pm_touch_req, PM_QOS_CPU_DMA_LATENCY,
-			   PM_QOS_DEFAULT_VALUE);
-
 	info->board->irq_type |= IRQF_PERF_CRITICAL;
 	retval = request_threaded_irq(info->irq, NULL,
 			fts_interrupt_handler, info->board->irq_type,
@@ -2028,7 +2010,11 @@ static int fts_probe(struct i2c_client *client, const struct i2c_device_id *idp)
 #ifdef FEATURE_FTS_PRODUCTION_CODE
 	fts_production_init(info);
 #endif /* FEATURE_FTS_PRODUCTION_CODE */
-	device_init_wakeup(&client->dev, IS_ENABLED(CONFIG_WAKE_GESTURES));
+#ifdef CONFIG_WAKE_GESTURES
+	device_init_wakeup(&client->dev, true);
+#else
+	device_init_wakeup(&client->dev, false);
+#endif
 	if (device_may_wakeup(&info->client->dev))
 		enable_irq_wake(info->irq);
 	info->lowpower_mode = true;
@@ -2138,6 +2124,9 @@ static int fts_input_open(struct input_dev *dev)
 		fts_command(info, FTS_CMD_HOVER_ON);
 	}
 
+	pm_qos_add_request(&info->pm_qos_req, PM_QOS_CPU_DMA_LATENCY,
+			PM_QOS_DEFAULT_VALUE);
+
 out:
 	return 0;
 }
@@ -2147,6 +2136,8 @@ static void fts_input_close(struct input_dev *dev)
 	struct fts_ts_info *info = input_get_drvdata(dev);
 
 	tsp_debug_info(&info->client->dev, "%s\n", __func__);
+
+	pm_qos_remove_request(&info->pm_qos_req);
 
 #ifdef USE_OPEN_DWORK
 	cancel_delayed_work(&info->open_work);
@@ -2491,6 +2482,7 @@ static int fts_suspend(struct i2c_client *client, pm_message_t mesg)
 		fts_release_all_finger(info);
 		suspended = true;
 		mutex_unlock(&info->device_mutex);
+
 		return 0;
 	}
 #endif
@@ -2520,6 +2512,7 @@ static int fts_resume(struct i2c_client *client)
 		fts_reinit(info);
 		info->reinit_done = true;
 		mutex_unlock(&info->device_mutex);
+
 		goto exit;
 	}
 #endif
@@ -2634,9 +2627,19 @@ static struct i2c_driver fts_i2c_driver = {
 	.id_table = fts_device_id,
 };
 
+static struct work_struct fts_init_work;
+
+static void fts_driver_init_worker(struct work_struct *work)
+{
+	i2c_add_driver(&fts_i2c_driver);
+}
+
 static int __init fts_driver_init(void)
 {
-	return i2c_add_driver(&fts_i2c_driver);
+	INIT_WORK(&fts_init_work, fts_driver_init_worker);
+	schedule_work(&fts_init_work);
+
+	return 0;
 }
 
 static void __exit fts_driver_exit(void)

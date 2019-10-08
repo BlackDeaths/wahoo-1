@@ -1815,20 +1815,20 @@ static void __print_buf(struct seq_file *s, struct mdss_mdp_data *buf,
 {
 	char tmpbuf[20];
 	int i;
-	const char const *buf_stat_stmap[] = {
+	const char *buf_stat_stmap[] = {
 		[MDP_BUF_STATE_UNUSED]  = "UNUSED ",
 		[MDP_BUF_STATE_READY]   = "READY  ",
 		[MDP_BUF_STATE_ACTIVE]  = "ACTIVE ",
 		[MDP_BUF_STATE_CLEANUP] = "CLEANUP",
 	};
-	const char const *domain_stmap[] = {
+	const char *domain_stmap[] = {
 		[MDSS_IOMMU_DOMAIN_UNSECURE]     = "mdp_unsecure",
 		[MDSS_IOMMU_DOMAIN_ROT_UNSECURE] = "rot_unsecure",
 		[MDSS_IOMMU_DOMAIN_SECURE]       = "mdp_secure",
 		[MDSS_IOMMU_DOMAIN_ROT_SECURE]   = "rot_secure",
 		[MDSS_IOMMU_MAX_DOMAIN]          = "undefined",
 	};
-	const char const *dma_data_dir_stmap[] = {
+	const char *dma_data_dir_stmap[] = {
 		[DMA_BIDIRECTIONAL] = "read/write",
 		[DMA_TO_DEVICE]     = "read",
 		[DMA_FROM_DEVICE]   = "read/write",
@@ -1861,12 +1861,14 @@ static void __print_buf(struct seq_file *s, struct mdss_mdp_data *buf,
 	seq_puts(s, "\n");
 }
 
-static void __dump_pipe(struct seq_file *s, struct mdss_mdp_pipe *pipe)
+static void __dump_pipe(struct seq_file *s, struct mdss_mdp_pipe *pipe,
+		struct msm_fb_data_type *mfd)
 {
 	struct mdss_mdp_data *buf;
 	int format;
 	int smps[4];
 	int i;
+	struct mdss_overlay_private *mdp5_data = mfd_to_mdp5_data(mfd);
 
 	seq_printf(s, "\nSSPP #%d type=%s ndx=%x flags=0x%16llx play_cnt=%u xin_id=%d\n",
 			pipe->num, mdss_mdp_pipetype2str(pipe->type),
@@ -1875,7 +1877,7 @@ static void __dump_pipe(struct seq_file *s, struct mdss_mdp_pipe *pipe)
 			pipe->mixer_stage, pipe->alpha,
 			pipe->transp, pipe->blend_op);
 	if (pipe->multirect.max_rects > 1) {
-		const char const *fmodes[] = {
+		const char *fmodes[] = {
 			[MDSS_MDP_PIPE_MULTIRECT_PARALLEL]	= "parallel",
 			[MDSS_MDP_PIPE_MULTIRECT_SERIAL]	= "serial",
 			[MDSS_MDP_PIPE_MULTIRECT_NONE]		= "single",
@@ -1921,11 +1923,14 @@ static void __dump_pipe(struct seq_file *s, struct mdss_mdp_pipe *pipe)
 
 	seq_puts(s, "Data:\n");
 
+	mutex_lock(&mdp5_data->list_lock);
 	list_for_each_entry(buf, &pipe->buf_queue, pipe_list)
 		__print_buf(s, buf, false);
+	mutex_unlock(&mdp5_data->list_lock);
 }
 
-static void __dump_mixer(struct seq_file *s, struct mdss_mdp_mixer *mixer)
+static void __dump_mixer(struct seq_file *s, struct mdss_mdp_mixer *mixer,
+		struct msm_fb_data_type *mfd)
 {
 	struct mdss_mdp_pipe *pipe;
 	int i, cnt = 0;
@@ -1942,7 +1947,7 @@ static void __dump_mixer(struct seq_file *s, struct mdss_mdp_mixer *mixer)
 	for (i = 0; i < ARRAY_SIZE(mixer->stage_pipe); i++) {
 		pipe = mixer->stage_pipe[i];
 		if (pipe) {
-			__dump_pipe(s, pipe);
+			__dump_pipe(s, pipe, mfd);
 			cnt++;
 		}
 	}
@@ -2017,8 +2022,8 @@ static void __dump_ctl(struct seq_file *s, struct mdss_mdp_ctl *ctl)
 	seq_printf(s, "Play Count=%u  Underrun Count=%u\n",
 			ctl->play_cnt, ctl->underrun_cnt);
 
-	__dump_mixer(s, ctl->mixer_left);
-	__dump_mixer(s, ctl->mixer_right);
+	__dump_mixer(s, ctl->mixer_left, ctl->mfd);
+	__dump_mixer(s, ctl->mixer_right, ctl->mfd);
 }
 
 static int __dump_mdp(struct seq_file *s, struct mdss_data_type *mdata)

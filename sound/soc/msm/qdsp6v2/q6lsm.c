@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2017, 2019 Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2017, Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -55,7 +55,6 @@ enum {
 };
 
 enum {
-	LSM_INVALID_SESSION_ID = 0,
 	LSM_MIN_SESSION_ID = 1,
 	LSM_MAX_SESSION_ID = 8,
 	LSM_CONTROL_SESSION = 0x0F,
@@ -163,8 +162,7 @@ static int q6lsm_callback(struct apr_client_data *data, void *priv)
 	if (data->opcode == LSM_DATA_EVENT_READ_DONE) {
 		struct lsm_cmd_read_done read_done;
 		token = data->token;
-		if (data->payload_size > sizeof(read_done) ||
-				data->payload_size < 6 * sizeof(payload[0])) {
+		if (data->payload_size > sizeof(read_done)) {
 			pr_err("%s: read done error payload size %d expected size %zd\n",
 				__func__, data->payload_size,
 				sizeof(read_done));
@@ -182,7 +180,6 @@ static int q6lsm_callback(struct apr_client_data *data, void *priv)
 		if (client->cb)
 			client->cb(data->opcode, data->token,
 					(void *)&read_done,
-					sizeof(read_done),
 					client->priv);
 		return 0;
 	} else if (data->opcode == APR_BASIC_RSP_RESULT) {
@@ -208,11 +205,6 @@ static int q6lsm_callback(struct apr_client_data *data, void *priv)
 					__func__, token, client->session);
 				return -EINVAL;
 			}
-			if (data->payload_size < 2 * sizeof(payload[0])) {
-				pr_err("%s: payload has invalid size[%d]\n",
-					__func__, data->payload_size);
-				return -EINVAL;
-			}
 			client->cmd_err_code = payload[1];
 			if (client->cmd_err_code)
 				pr_err("%s: cmd 0x%x failed status %d\n",
@@ -233,7 +225,7 @@ static int q6lsm_callback(struct apr_client_data *data, void *priv)
 
 	if (client->cb)
 		client->cb(data->opcode, data->token, data->payload,
-				data->payload_size, client->priv);
+			   client->priv);
 
 	return 0;
 }
@@ -261,9 +253,9 @@ static void q6lsm_session_free(struct lsm_client *client)
 	unsigned long flags;
 	pr_debug("%s: Freeing session ID %d\n", __func__, client->session);
 	spin_lock_irqsave(&lsm_session_lock, flags);
-	lsm_session[client->session] = LSM_INVALID_SESSION_ID;
+	lsm_session[client->session] = NULL;
 	spin_unlock_irqrestore(&lsm_session_lock, flags);
-	client->session = LSM_INVALID_SESSION_ID;
+	client->session = 0;
 }
 
 static void *q6lsm_mmap_apr_reg(void)
@@ -1351,8 +1343,6 @@ static int q6lsm_mmapcallback(struct apr_client_data *data, void *priv)
 		pr_debug("%s: SSR event received 0x%x, event 0x%x,\n"
 			 "proc 0x%x SID 0x%x\n", __func__, data->opcode,
 			 data->reset_event, data->reset_proc, sid);
-		if (sid < LSM_MIN_SESSION_ID || sid > LSM_MAX_SESSION_ID)
-			pr_err("%s: Invalid session %d\n", __func__, sid);
 		lsm_common.common_client[sid].lsm_cal_phy_addr = 0;
 		cal_utils_clear_cal_block_q6maps(LSM_MAX_CAL_IDX,
 			lsm_common.cal_data);
@@ -1414,8 +1404,7 @@ static int q6lsm_mmapcallback(struct apr_client_data *data, void *priv)
 	}
 	if (client->cb)
 		client->cb(data->opcode, data->token,
-			   data->payload, data->payload_size,
-			   client->priv);
+			   data->payload, client->priv);
 	return 0;
 }
 
@@ -1927,8 +1916,9 @@ int q6lsm_lab_buffer_alloc(struct lsm_client *client, bool alloc)
 				client->hw_params.buf_sz;
 		allocate_size = PAGE_ALIGN(allocate_size);
 		client->lab_buffer =
-			kzalloc(sizeof(struct lsm_lab_buffer) *
-			client->hw_params.period_count, GFP_KERNEL);
+			kcalloc(client->hw_params.period_count,
+				sizeof(struct lsm_lab_buffer),
+				GFP_KERNEL);
 		if (!client->lab_buffer) {
 			pr_err("%s: memory allocation for lab buffer failed count %d\n"
 				, __func__,

@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -23,20 +23,9 @@
 #include "msm_vidc_debug.h"
 #include "msm_vidc_dcvs.h"
 
-#define IS_ALREADY_IN_STATE(__p, __d) ({\
-	int __rc = (__p >= __d);\
-	__rc; \
-})
-
-#define SUM_ARRAY(__arr, __start, __end) ({\
-		int __index;\
-		typeof((__arr)[0]) __sum = 0;\
-		for (__index = (__start); __index <= (__end); __index++) {\
-			if (__index >= 0 && __index < ARRAY_SIZE(__arr))\
-				__sum += __arr[__index];\
-		} \
-		__sum;\
-})
+#define IS_ALREADY_IN_STATE(__p, __d) (\
+	(__p >= __d)\
+)
 
 #define V4L2_EVENT_SEQ_CHANGED_SUFFICIENT \
 		V4L2_EVENT_MSM_VIDC_PORT_SETTINGS_CHANGED_SUFFICIENT
@@ -130,15 +119,16 @@ int msm_comm_g_ctrl_for_id(struct msm_vidc_inst *inst, int id)
 	};
 
 	rc = msm_comm_g_ctrl(inst, &ctrl);
-	return rc ?: ctrl.value;
+	return rc ? rc : ctrl.value;
 }
 
 static struct v4l2_ctrl **get_super_cluster(struct msm_vidc_inst *inst,
 				int num_ctrls)
 {
 	int c = 0;
-	struct v4l2_ctrl **cluster = kmalloc(sizeof(struct v4l2_ctrl *) *
-			num_ctrls, GFP_KERNEL);
+	struct v4l2_ctrl **cluster = kmalloc_array(num_ctrls,
+						   sizeof(struct v4l2_ctrl *),
+						   GFP_KERNEL);
 
 	if (!cluster || !inst)
 		return NULL;
@@ -504,8 +494,8 @@ static int msm_comm_vote_bus(struct msm_vidc_core *core)
 	list_for_each_entry(inst, &core->instances, list)
 		++vote_data_count;
 
-	vote_data = kzalloc(sizeof(*vote_data) * vote_data_count,
-			GFP_TEMPORARY);
+	vote_data = kcalloc(vote_data_count, sizeof(*vote_data),
+			    GFP_TEMPORARY);
 	if (!vote_data) {
 		dprintk(VIDC_ERR, "%s: failed to allocate memory\n", __func__);
 		rc = -ENOMEM;
@@ -685,11 +675,13 @@ static void handle_sys_init_done(enum hal_command_response cmd, void *data)
 
 	/* This should come from sys_init_done */
 	core->resources.max_inst_count =
-		sys_init_msg->max_sessions_supported ? :
+		sys_init_msg->max_sessions_supported ?
+		sys_init_msg->max_sessions_supported :
 		MAX_SUPPORTED_INSTANCES;
 
 	core->resources.max_secure_inst_count =
-		core->resources.max_secure_inst_count ? :
+		core->resources.max_secure_inst_count ?
+		core->resources.max_secure_inst_count :
 		core->resources.max_inst_count;
 
 	if (core->id == MSM_VIDC_CORE_VENUS &&
@@ -1132,38 +1124,12 @@ static void handle_event_change(enum hal_command_response cmd, void *data)
 
 	switch (event_notify->hal_event_type) {
 	case HAL_EVENT_SEQ_CHANGED_SUFFICIENT_RESOURCES:
-		event = V4L2_EVENT_SEQ_CHANGED_INSUFFICIENT;
-
 		rc = msm_comm_g_ctrl_for_id(inst,
 			V4L2_CID_MPEG_VIDC_VIDEO_CONTINUE_DATA_TRANSFER);
-
-		if (!IS_ERR_VALUE(rc) && rc == true) {
+		if ((IS_ERR_VALUE(rc) || rc == false))
+			event = V4L2_EVENT_SEQ_CHANGED_INSUFFICIENT;
+		else
 			event = V4L2_EVENT_SEQ_CHANGED_SUFFICIENT;
-
-			if (msm_comm_get_stream_output_mode(inst) ==
-				HAL_VIDEO_DECODER_SECONDARY) {
-				struct hal_frame_size frame_sz;
-
-				frame_sz.buffer_type = HAL_BUFFER_OUTPUT2;
-				frame_sz.width = event_notify->width;
-				frame_sz.height = event_notify->height;
-				dprintk(VIDC_DBG,
-					"Update OPB dimensions to firmware if buffer requirements are sufficient\n");
-				rc = msm_comm_try_set_prop(inst,
-					HAL_PARAM_FRAME_SIZE, &frame_sz);
-			}
-
-			dprintk(VIDC_DBG,
-				"send session_continue after sufficient event\n");
-			rc = call_hfi_op(hdev, session_continue,
-					(void *) inst->session);
-			if (rc) {
-				dprintk(VIDC_ERR,
-					"%s - failed to send session_continue\n",
-					__func__);
-				goto err_bad_event;
-			}
-		}
 		break;
 	case HAL_EVENT_SEQ_CHANGED_INSUFFICIENT_RESOURCES:
 		event = V4L2_EVENT_SEQ_CHANGED_INSUFFICIENT;
@@ -1266,7 +1232,7 @@ static void handle_event_change(enum hal_command_response cmd, void *data)
 				"V4L2_EVENT_SEQ_CHANGED_INSUFFICIENT due to bit-depth change\n");
 		}
 
-		if (inst->fmts[CAPTURE_PORT].fourcc == V4L2_PIX_FMT_NV12 &&
+		if ((inst->fmts[CAPTURE_PORT].fourcc == V4L2_PIX_FMT_NV12) &&
 			inst->pic_struct != event_notify->pic_struct) {
 			inst->pic_struct = event_notify->pic_struct;
 			event = V4L2_EVENT_SEQ_CHANGED_INSUFFICIENT;
@@ -1316,6 +1282,30 @@ static void handle_event_change(enum hal_command_response cmd, void *data)
 			ptr = (u32 *)seq_changed_event.u.data;
 			ptr[0] = event_notify->height;
 			ptr[1] = event_notify->width;
+		} else {
+			if (msm_comm_get_stream_output_mode(inst) ==
+				HAL_VIDEO_DECODER_SECONDARY) {
+				struct hal_frame_size frame_sz;
+
+				frame_sz.buffer_type = HAL_BUFFER_OUTPUT2;
+				frame_sz.width = event_notify->width;
+				frame_sz.height = event_notify->height;
+				dprintk(VIDC_DBG,
+					"Update OPB dimensions to firmware if buffer requirements are sufficient\n");
+				rc = msm_comm_try_set_prop(inst,
+					HAL_PARAM_FRAME_SIZE, &frame_sz);
+			}
+
+			dprintk(VIDC_DBG,
+				"send session_continue after sufficient event\n");
+			rc = call_hfi_op(hdev, session_continue,
+					(void *) inst->session);
+			if (rc) {
+				dprintk(VIDC_ERR,
+					"%s - failed to send session_continue\n",
+					__func__);
+				goto err_bad_event;
+			}
 		}
 		v4l2_event_queue_fh(&inst->event_handler, &seq_changed_event);
 	} else if (rc == -ENOTSUPP) {
@@ -2690,8 +2680,9 @@ static int msm_comm_init_core(struct msm_vidc_inst *inst)
 		goto core_already_inited;
 	}
 	if (!core->capabilities) {
-		core->capabilities = kzalloc(VIDC_MAX_SESSIONS *
-				sizeof(struct msm_vidc_capability), GFP_KERNEL);
+		core->capabilities = kcalloc(VIDC_MAX_SESSIONS,
+					     sizeof(struct msm_vidc_capability),
+					     GFP_KERNEL);
 		if (!core->capabilities) {
 			dprintk(VIDC_ERR,
 				"%s: failed to allocate capabilities\n",
@@ -3117,7 +3108,7 @@ static int set_output_buffers(struct msm_vidc_inst *inst,
 {
 	int rc = 0;
 	struct msm_smem *handle;
-	struct internal_buf *binfo;
+	struct internal_buf *binfo = NULL;
 	u32 smem_flags = 0, buffer_size;
 	struct hal_buffer_requirements *output_buf, *extradata_buf;
 	int i;
@@ -3223,10 +3214,10 @@ static int set_output_buffers(struct msm_vidc_inst *inst,
 	}
 	return rc;
 fail_set_buffers:
-	kfree(binfo);
-fail_kzalloc:
 	msm_comm_smem_free(inst, handle);
 err_no_mem:
+	kfree(binfo);
+fail_kzalloc:
 	return rc;
 }
 
@@ -3849,20 +3840,17 @@ int msm_comm_qbuf(struct msm_vidc_inst *inst, struct vb2_buffer *vb)
 	 * Don't queue if:
 	 * 1) Hardware isn't ready (that's simple)
 	 */
-	if (!defer)
-		defer = inst->state != MSM_VIDC_START_DONE;
+	defer = defer ? defer : (inst->state != MSM_VIDC_START_DONE);
 
 	/*
 	 * 2) The client explicitly tells us not to because it wants this
 	 * buffer to be batched with future frames.  The batch size (on both
 	 * capabilities) is completely determined by the client.
 	 */
-	if (!defer)
-		defer = vbuf && vbuf->flags & V4L2_MSM_BUF_FLAG_DEFER;
+	defer = defer ? defer : (vbuf && vbuf->flags & V4L2_MSM_BUF_FLAG_DEFER);
 
 	/* 3) If we're in batch mode, we must have full batches of both types */
-	if (!defer)
-		defer = batch_mode && (!output_count || !capture_count);
+	defer = defer ? defer:(batch_mode && (!output_count || !capture_count));
 
 	if (defer) {
 		dprintk(VIDC_DBG, "Deferring queue of %pK\n", vb);
