@@ -2219,7 +2219,7 @@ static int smb135x_chg_otg_regulator_is_enable(struct regulator_dev *rdev)
 	return  (reg & OTG_EN) ? 1 : 0;
 }
 
-static struct regulator_ops smb135x_chg_otg_reg_ops = {
+struct regulator_ops smb135x_chg_otg_reg_ops = {
 	.enable		= smb135x_chg_otg_regulator_enable,
 	.disable	= smb135x_chg_otg_regulator_disable,
 	.is_enabled	= smb135x_chg_otg_regulator_is_enable,
@@ -3996,10 +3996,9 @@ static int smb_parse_dt(struct smb135x_chg *chip)
 			return -EINVAL;
 		}
 
-		chip->gamma_setting = devm_kcalloc(chip->dev,
-			chip->gamma_setting_num,
-			sizeof(chip->gamma_setting_num),
-			GFP_KERNEL);
+		chip->gamma_setting = devm_kzalloc(chip->dev,
+			chip->gamma_setting_num *
+				sizeof(chip->gamma_setting_num), GFP_KERNEL);
 		if (!chip->gamma_setting) {
 			pr_err("gamma setting kzalloc failed!\n");
 			return -ENOMEM;

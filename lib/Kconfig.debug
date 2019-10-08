@@ -544,7 +544,7 @@ config DEBUG_KMEMLEAK_EARLY_LOG_SIZE
 	int "Maximum kmemleak early log entries"
 	depends on DEBUG_KMEMLEAK
 	range 200 40000
-	default 400
+	default 16000
 	help
 	  Kmemleak must track all the memory allocations to avoid
 	  reporting false positives. Since memory may be allocated or
@@ -696,19 +696,6 @@ config DEBUG_STACKOVERFLOW
 source "lib/Kconfig.kmemcheck"
 
 source "lib/Kconfig.kasan"
-
-config DEBUG_REFCOUNT
-	bool "Verbose refcount checks"
-	help
-	  Say Y here if you want reference counters (refcount_t and kref) to
-	  generate WARNs on dubious usage. Without this refcount_t will still
-	  be a saturating counter and avoid Use-After-Free by turning it into
-	  a resource leak Denial-Of-Service.
-
-	  Use of this option will increase kernel text size but will alert the
-	  admin of potential abuse.
-
-	  If in doubt, say "N".
 
 endmenu # "Memory Debugging"
 
@@ -913,6 +900,14 @@ config PANIC_ON_OOPS_VALUE
 	default 0 if !PANIC_ON_OOPS
 	default 1 if PANIC_ON_OOPS
 
+config PANIC_ON_WARN_DEFAULT_ENABLE
+	bool "Panic on warn"
+	default n
+	help
+	  Say Y here to enable the kernel to panic when detect warnings. This
+	  has the same effect as setting panic_on_warn on the kernel command
+	  line.
+
 config PANIC_TIMEOUT
 	int "panic timeout"
 	default 0
@@ -982,6 +977,20 @@ config DEBUG_TIMEKEEPING
 
 	  If unsure, say N.
 
+config TIMER_STATS
+	bool "Collect kernel timers statistics"
+	depends on DEBUG_KERNEL && PROC_FS
+	help
+	  If you say Y here, additional code will be inserted into the
+	  timer routines to collect statistics about kernel timers being
+	  reprogrammed. The statistics can be read from /proc/timer_stats.
+	  The statistics collection is started by writing 1 to /proc/timer_stats,
+	  writing 0 stops it. This feature is useful to collect information
+	  about timer usage patterns in kernel and userspace. This feature
+	  is lightweight if enabled in the kernel config but not activated
+	  (it defaults to deactivated on bootup and will only be activated
+	  if some application like powertop activates it explicitly).
+
 config DEBUG_TASK_STACK_SCAN_OFF
 	bool "Disable kmemleak task stack scan by default"
 	depends on DEBUG_KMEMLEAK
@@ -1028,6 +1037,28 @@ config DEBUG_SPINLOCK
 	  and certain other kinds of spinlock errors commonly made.  This is
 	  best used in conjunction with the NMI watchdog so that spinlock
 	  deadlocks are also debuggable.
+
+choice
+	prompt "Perform Action on spinlock bug"
+	depends on DEBUG_SPINLOCK
+
+	default DEBUG_SPINLOCK_BITE_ON_BUG
+
+	config DEBUG_SPINLOCK_BITE_ON_BUG
+		bool "Cause a Watchdog Bite on Spinlock bug"
+		depends on QCOM_WATCHDOG_V2
+		help
+		  On a spinlock bug, cause a watchdog bite so that we can get the precise
+		  state of the system captured at the time of spin dump. This is mutually
+		  exclusive with the below DEBUG_SPINLOCK_PANIC_ON_BUG config.
+
+	config DEBUG_SPINLOCK_PANIC_ON_BUG
+		bool "Cause a Kernel Panic on Spinlock bug"
+		help
+		  On a spinlock bug, cause a kernel panic so that we can get the complete
+		  information about the system at the time of spin dump in the dmesg.
+		  This is mutually exclusive with the above DEBUG_SPINLOCK_BITE_ON_BUG.
+endchoice
 
 config DEBUG_MUTEXES
 	bool "Mutex debugging: basic checks"
@@ -1232,7 +1263,7 @@ config HAVE_DEBUG_BUGVERBOSE
 config DEBUG_BUGVERBOSE
 	bool "Verbose BUG() reporting (adds 70K)" if DEBUG_KERNEL && EXPERT
 	depends on BUG && (GENERIC_BUG || HAVE_DEBUG_BUGVERBOSE)
-	default n
+	default y
 	help
 	  Say Y here to make BUG() panics output the file name and line number
 	  of the BUG call as well as the EIP and oops trace.  This aids
@@ -1990,6 +2021,13 @@ config TEST_STATIC_KEYS
 
 	  If unsure, say N.
 
+config PANIC_ON_DATA_CORRUPTION
+	bool "Cause a Kernel Panic When Data Corruption is detected"
+	help
+	 Select this option to upgrade warnings for potentially
+	 recoverable data corruption scenarios to system-halting panics,
+	 for easier detection and debug.
+
 config CC_WERROR
 	bool "Treat all compile warnings as errors"
 	default n
@@ -1999,16 +2037,6 @@ config CC_WERROR
 	 the codebase.
 
 	 If unsure, say N.
-
-config BUG_ON_DATA_CORRUPTION
-	bool "Trigger a BUG when data corruption is detected"
-	select CONFIG_DEBUG_LIST
-	help
-	  Select this option if the kernel should BUG when it encounters
-	  data corruption in kernel memory structures when they get checked
-	  for validity.
-
-	  If unsure, say N.
 
 source "samples/Kconfig"
 

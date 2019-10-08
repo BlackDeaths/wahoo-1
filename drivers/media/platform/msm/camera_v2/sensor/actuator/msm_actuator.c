@@ -56,11 +56,6 @@ static int32_t msm_actuator_piezo_set_default_focus(
 	struct msm_camera_i2c_reg_setting reg_setting;
 	CDBG("Enter\n");
 
-	if (a_ctrl->i2c_reg_tbl == NULL) {
-		pr_err("failed. i2c reg tabl is NULL");
-		return -EFAULT;
-	}
-
 	if (a_ctrl->curr_step_pos != 0) {
 		a_ctrl->i2c_tbl_index = 0;
 		a_ctrl->func_tbl->actuator_parse_i2c_params(a_ctrl,
@@ -538,11 +533,6 @@ static int32_t msm_actuator_piezo_move_focus(
 		return -EFAULT;
 	}
 
-	if (a_ctrl->i2c_reg_tbl == NULL) {
-		pr_err("failed. i2c reg tabl is NULL");
-		return -EFAULT;
-	}
-
 	if (dest_step_position > a_ctrl->total_steps) {
 		pr_err("Step pos greater than total steps = %d\n",
 			dest_step_position);
@@ -600,10 +590,6 @@ static int32_t msm_actuator_move_focus(
 		pr_err("Invalid direction = %d\n", dir);
 		return -EFAULT;
 	}
-	if (a_ctrl->i2c_reg_tbl == NULL) {
-		pr_err("failed. i2c reg tabl is NULL");
-		return -EFAULT;
-	}
 	if (dest_step_pos > a_ctrl->total_steps) {
 		pr_err("Step pos greater than total steps = %d\n",
 		dest_step_pos);
@@ -617,9 +603,9 @@ static int32_t msm_actuator_move_focus(
 		return -EFAULT;
 	}
 	/*Allocate memory for damping parameters of all regions*/
-	ringing_params_kernel = kmalloc_array(a_ctrl->region_size,
-					      sizeof(struct damping_params_t),
-					      GFP_KERNEL);
+	ringing_params_kernel = kmalloc(
+		sizeof(struct damping_params_t)*(a_ctrl->region_size),
+		GFP_KERNEL);
 	if (!ringing_params_kernel) {
 		pr_err("kmalloc for damping parameters failed\n");
 		return -EFAULT;
@@ -739,9 +725,9 @@ static int32_t msm_actuator_bivcm_move_focus(
 		return -EFAULT;
 	}
 	/*Allocate memory for damping parameters of all regions*/
-	ringing_params_kernel = kmalloc_array(a_ctrl->region_size,
-					      sizeof(struct damping_params_t),
-					      GFP_KERNEL);
+	ringing_params_kernel = kmalloc(
+		sizeof(struct damping_params_t)*(a_ctrl->region_size),
+		GFP_KERNEL);
 	if (!ringing_params_kernel) {
 		pr_err("kmalloc for damping parameters failed\n");
 		return -EFAULT;
@@ -909,9 +895,8 @@ static int32_t msm_actuator_bivcm_init_step_table(
 	}
 	/* Fill step position table */
 	a_ctrl->step_position_table =
-		kmalloc_array(set_info->af_tuning_params.total_steps + 1,
-			      sizeof(uint16_t),
-			      GFP_KERNEL);
+		kmalloc(sizeof(uint16_t) *
+		(set_info->af_tuning_params.total_steps + 1), GFP_KERNEL);
 
 	if (a_ctrl->step_position_table == NULL)
 		return -ENOMEM;
@@ -999,9 +984,8 @@ static int32_t msm_actuator_init_step_table(struct msm_actuator_ctrl_t *a_ctrl,
 	}
 	/* Fill step position table */
 	a_ctrl->step_position_table =
-		kmalloc_array(set_info->af_tuning_params.total_steps + 1,
-			      sizeof(uint16_t),
-			      GFP_KERNEL);
+		kmalloc(sizeof(uint16_t) *
+		(set_info->af_tuning_params.total_steps + 1), GFP_KERNEL);
 
 	if (a_ctrl->step_position_table == NULL)
 		return -ENOMEM;
@@ -1187,8 +1171,7 @@ static int32_t msm_actuator_set_position(
 	}
 
 	if (!a_ctrl || !a_ctrl->func_tbl ||
-		!a_ctrl->func_tbl->actuator_parse_i2c_params ||
-		!a_ctrl->i2c_reg_tbl) {
+		!a_ctrl->func_tbl->actuator_parse_i2c_params) {
 		pr_err("failed. NULL actuator pointers.");
 		return -EFAULT;
 	}
@@ -1298,10 +1281,12 @@ static int32_t msm_actuator_set_param(struct msm_actuator_ctrl_t *a_ctrl,
 
 	a_ctrl->region_size = set_info->af_tuning_params.region_size;
 	a_ctrl->pwd_step = set_info->af_tuning_params.pwd_step;
+	a_ctrl->total_steps = set_info->af_tuning_params.total_steps;
 
 	if (copy_from_user(&a_ctrl->region_params,
 		(void *)set_info->af_tuning_params.region_params,
 		a_ctrl->region_size * sizeof(struct region_params_t))) {
+		a_ctrl->total_steps = 0;
 		pr_err("Error copying region_params\n");
 		return -EFAULT;
 	}
@@ -1334,18 +1319,14 @@ static int32_t msm_actuator_set_param(struct msm_actuator_ctrl_t *a_ctrl,
 		(a_ctrl->i2c_reg_tbl != NULL)) {
 		kfree(a_ctrl->i2c_reg_tbl);
 	}
-
 	a_ctrl->i2c_reg_tbl = NULL;
 	a_ctrl->i2c_reg_tbl =
-		kmalloc_array(set_info->af_tuning_params.total_steps + 1,
-			      sizeof(struct msm_camera_i2c_reg_array),
-			      GFP_KERNEL);
+		kmalloc(sizeof(struct msm_camera_i2c_reg_array) *
+		(set_info->af_tuning_params.total_steps + 1), GFP_KERNEL);
 	if (!a_ctrl->i2c_reg_tbl) {
 		pr_err("kmalloc fail\n");
 		return -ENOMEM;
 	}
-
-	a_ctrl->total_steps = set_info->af_tuning_params.total_steps;
 
 	if (copy_from_user(&a_ctrl->reg_tbl,
 		(void *)set_info->actuator_params.reg_tbl_params,
@@ -1360,9 +1341,9 @@ static int32_t msm_actuator_set_param(struct msm_actuator_ctrl_t *a_ctrl,
 		set_info->actuator_params.init_setting_size
 		<= MAX_ACTUATOR_INIT_SET) {
 		if (a_ctrl->func_tbl->actuator_init_focus) {
-			init_settings = kmalloc_array(set_info->actuator_params.init_setting_size,
-						      sizeof(struct reg_settings_t),
-						      GFP_KERNEL);
+			init_settings = kmalloc(sizeof(struct reg_settings_t) *
+				(set_info->actuator_params.init_setting_size),
+				GFP_KERNEL);
 			if (init_settings == NULL) {
 				kfree(a_ctrl->i2c_reg_tbl);
 				a_ctrl->i2c_reg_tbl = NULL;

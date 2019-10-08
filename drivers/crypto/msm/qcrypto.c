@@ -122,10 +122,8 @@ struct crypto_stat {
 	u64 ahash_op_fail;
 };
 static struct crypto_stat _qcrypto_stat;
-#ifdef CONFIG_DEBUG_FS
 static struct dentry *_debug_dent;
 static char _debug_read_buf[DEBUG_MAX_RW_BUF];
-#endif
 static bool _qcrypto_init_assign;
 struct crypto_priv;
 struct qcrypto_req_control {
@@ -264,7 +262,7 @@ static void qcrypto_free_req_control(struct crypto_engine *pce,
 	preq->arsp = NULL;
 	/* free req */
 	if (xchg(&preq->in_use, false) == false) {
-		pr_warn("request info %pK free already\n", preq);
+		pr_warn("request info %p free already\n", preq);
 	} else {
 		atomic_dec(&pce->req_count);
 	}
@@ -1105,7 +1103,6 @@ static void _qcrypto_cra_aead_aes_exit(struct crypto_aead *tfm)
 	ctx->ahash_aead_aes192_fb = NULL;
 }
 
-#ifdef CONFIG_DEBUG_FS
 static int _disp_stats(int id)
 {
 	struct crypto_stat *pstat;
@@ -1279,7 +1276,6 @@ static int _disp_stats(int id)
 				i, cp->cpu_req[i]);
 	return len;
 }
-#endif
 
 static void _qcrypto_remove_engine(struct crypto_engine *pengine)
 {
@@ -1723,7 +1719,7 @@ static void _qce_ahash_complete(void *cookie, unsigned char *digest,
 	}
 
 #ifdef QCRYPTO_DEBUG
-	dev_info(&pengine->pdev->dev, "_qce_ahash_complete: %pK ret %d\n",
+	dev_info(&pengine->pdev->dev, "_qce_ahash_complete: %p ret %d\n",
 				areq, ret);
 #endif
 	if (digest) {
@@ -1782,7 +1778,7 @@ static void _qce_ablk_cipher_complete(void *cookie, unsigned char *icb,
 	}
 
 #ifdef QCRYPTO_DEBUG
-	dev_info(&pengine->pdev->dev, "_qce_ablk_cipher_complete: %pK ret %d\n",
+	dev_info(&pengine->pdev->dev, "_qce_ablk_cipher_complete: %p ret %d\n",
 				areq, ret);
 #endif
 	if (iv)
@@ -2476,7 +2472,7 @@ static int _qcrypto_enc_aes_ecb(struct ablkcipher_request *req)
 	BUG_ON(crypto_tfm_alg_type(req->base.tfm) !=
 					CRYPTO_ALG_TYPE_ABLKCIPHER);
 #ifdef QCRYPTO_DEBUG
-	dev_info(&ctx->pengine->pdev->dev, "_qcrypto_enc_aes_ecb: %pK\n", req);
+	dev_info(&ctx->pengine->pdev->dev, "_qcrypto_enc_aes_ecb: %p\n", req);
 #endif
 
 	if ((ctx->enc_key_len == AES_KEYSIZE_192) &&
@@ -2506,7 +2502,7 @@ static int _qcrypto_enc_aes_cbc(struct ablkcipher_request *req)
 	BUG_ON(crypto_tfm_alg_type(req->base.tfm) !=
 					CRYPTO_ALG_TYPE_ABLKCIPHER);
 #ifdef QCRYPTO_DEBUG
-	dev_info(&ctx->pengine->pdev->dev, "_qcrypto_enc_aes_cbc: %pK\n", req);
+	dev_info(&ctx->pengine->pdev->dev, "_qcrypto_enc_aes_cbc: %p\n", req);
 #endif
 
 	if ((ctx->enc_key_len == AES_KEYSIZE_192) &&
@@ -2536,7 +2532,7 @@ static int _qcrypto_enc_aes_ctr(struct ablkcipher_request *req)
 	BUG_ON(crypto_tfm_alg_type(req->base.tfm) !=
 				CRYPTO_ALG_TYPE_ABLKCIPHER);
 #ifdef QCRYPTO_DEBUG
-	dev_info(&ctx->pengine->pdev->dev, "_qcrypto_enc_aes_ctr: %pK\n", req);
+	dev_info(&ctx->pengine->pdev->dev, "_qcrypto_enc_aes_ctr: %p\n", req);
 #endif
 
 	if ((ctx->enc_key_len == AES_KEYSIZE_192) &&
@@ -2720,7 +2716,7 @@ static int _qcrypto_dec_aes_ecb(struct ablkcipher_request *req)
 	BUG_ON(crypto_tfm_alg_type(req->base.tfm) !=
 				CRYPTO_ALG_TYPE_ABLKCIPHER);
 #ifdef QCRYPTO_DEBUG
-	dev_info(&ctx->pengine->pdev->dev, "_qcrypto_dec_aes_ecb: %pK\n", req);
+	dev_info(&ctx->pengine->pdev->dev, "_qcrypto_dec_aes_ecb: %p\n", req);
 #endif
 
 	if ((ctx->enc_key_len == AES_KEYSIZE_192) &&
@@ -2750,7 +2746,7 @@ static int _qcrypto_dec_aes_cbc(struct ablkcipher_request *req)
 	BUG_ON(crypto_tfm_alg_type(req->base.tfm) !=
 				CRYPTO_ALG_TYPE_ABLKCIPHER);
 #ifdef QCRYPTO_DEBUG
-	dev_info(&ctx->pengine->pdev->dev, "_qcrypto_dec_aes_cbc: %pK\n", req);
+	dev_info(&ctx->pengine->pdev->dev, "_qcrypto_dec_aes_cbc: %p\n", req);
 #endif
 
 	if ((ctx->enc_key_len == AES_KEYSIZE_192) &&
@@ -2780,7 +2776,7 @@ static int _qcrypto_dec_aes_ctr(struct ablkcipher_request *req)
 	BUG_ON(crypto_tfm_alg_type(req->base.tfm) !=
 					CRYPTO_ALG_TYPE_ABLKCIPHER);
 #ifdef QCRYPTO_DEBUG
-	dev_info(&ctx->pengine->pdev->dev, "_qcrypto_dec_aes_ctr: %pK\n", req);
+	dev_info(&ctx->pengine->pdev->dev, "_qcrypto_dec_aes_ctr: %p\n", req);
 #endif
 
 	if ((ctx->enc_key_len == AES_KEYSIZE_192) &&
@@ -3342,7 +3338,7 @@ static int _qcrypto_aead_encrypt_aes_cbc(struct aead_request *req)
 
 #ifdef QCRYPTO_DEBUG
 	dev_info(&ctx->pengine->pdev->dev,
-			 "_qcrypto_aead_encrypt_aes_cbc: %pK\n", req);
+			 "_qcrypto_aead_encrypt_aes_cbc: %p\n", req);
 #endif
 
 	rctx = aead_request_ctx(req);
@@ -3373,7 +3369,7 @@ static int _qcrypto_aead_decrypt_aes_cbc(struct aead_request *req)
 
 #ifdef QCRYPTO_DEBUG
 	dev_info(&ctx->pengine->pdev->dev,
-			 "_qcrypto_aead_decrypt_aes_cbc: %pK\n", req);
+			 "_qcrypto_aead_decrypt_aes_cbc: %p\n", req);
 #endif
 	rctx = aead_request_ctx(req);
 	rctx->aead = 1;
@@ -4227,7 +4223,7 @@ static int _sha256_hmac_digest(struct ahash_request *req)
 static int _qcrypto_prefix_alg_cra_name(char cra_name[], unsigned int size)
 {
 	char new_cra_name[CRYPTO_MAX_ALG_NAME] = "qcom-";
-	if (size >= CRYPTO_MAX_ALG_NAME - DSTRLEN("qcom-"))
+	if (size >= CRYPTO_MAX_ALG_NAME - strlen("qcom-"))
 		return -EINVAL;
 	strlcat(new_cra_name, cra_name, CRYPTO_MAX_ALG_NAME);
 	strlcpy(cra_name, new_cra_name, CRYPTO_MAX_ALG_NAME);
@@ -4926,9 +4922,8 @@ static int  _qcrypto_probe(struct platform_device *pdev)
 	qce_hw_support(pengine->qce, &cp->ce_support);
 	pengine->ce_hw_instance = cp->ce_support.ce_hw_instance;
 	pengine->max_req = cp->ce_support.max_request;
-	pqcrypto_req_control = kcalloc(pengine->max_req,
-				       sizeof(struct qcrypto_req_control),
-				       GFP_KERNEL);
+	pqcrypto_req_control = kzalloc(sizeof(struct qcrypto_req_control) *
+			pengine->max_req, GFP_KERNEL);
 	if (pqcrypto_req_control == NULL) {
 		rc = -ENOMEM;
 		goto err;
@@ -5413,7 +5408,6 @@ static struct platform_driver _qualcomm_crypto = {
 	},
 };
 
-#ifdef CONFIG_DEBUG_FS
 static int _debug_qcrypto;
 
 static int _debug_stats_open(struct inode *inode, struct file *file)
@@ -5502,16 +5496,15 @@ err:
 	debugfs_remove_recursive(_debug_dent);
 	return rc;
 }
-#endif
 
 static int __init _qcrypto_init(void)
 {
+	int rc;
 	struct crypto_priv *pcp = &qcrypto_dev;
 
-#ifdef CONFIG_DEBUG_FS
-	_qcrypto_debug_init();
-#endif
-
+	rc = _qcrypto_debug_init();
+	if (rc)
+		return rc;
 	INIT_LIST_HEAD(&pcp->alg_list);
 	INIT_LIST_HEAD(&pcp->engine_list);
 	init_llist_head(&pcp->ordered_resp_list);
@@ -5536,9 +5529,7 @@ static int __init _qcrypto_init(void)
 static void __exit _qcrypto_exit(void)
 {
 	pr_debug("%s Unregister QCRYPTO\n", __func__);
-#ifdef CONFIG_DEBUG_FS
 	debugfs_remove_recursive(_debug_dent);
-#endif
 	platform_driver_unregister(&_qualcomm_crypto);
 }
 

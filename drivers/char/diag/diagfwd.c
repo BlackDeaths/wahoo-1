@@ -38,7 +38,6 @@
 #include "diag_masks.h"
 #include "diag_usb.h"
 #include "diag_mux.h"
-#include "diag_ipc_logging.h"
 
 #define STM_CMD_VERSION_OFFSET	4
 #define STM_CMD_MASK_OFFSET	5
@@ -1718,13 +1717,13 @@ int diagfwd_init(void)
 		goto err;
 	kmemleak_not_leak(driver->user_space_data_buf);
 	if (driver->client_map == NULL &&
-	    (driver->client_map = kcalloc
-	     (driver->num_clients, sizeof(struct diag_client_map),
+	    (driver->client_map = kzalloc
+	     ((driver->num_clients) * sizeof(struct diag_client_map),
 		   GFP_KERNEL)) == NULL)
 		goto err;
 	kmemleak_not_leak(driver->client_map);
 	if (driver->data_ready == NULL &&
-	     (driver->data_ready = kcalloc(driver->num_clients, sizeof(int)
+	     (driver->data_ready = kzalloc(driver->num_clients * sizeof(int)
 							, GFP_KERNEL)) == NULL)
 		goto err;
 	kmemleak_not_leak(driver->data_ready);

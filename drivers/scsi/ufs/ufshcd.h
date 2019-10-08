@@ -608,22 +608,6 @@ struct ufshcd_io_stat {
 };
 #endif
 
-enum ufshcd_ctx {
-	QUEUE_CMD,
-	ERR_HNDLR_WORK,
-	H8_EXIT_WORK,
-	UIC_CMD_SEND,
-	PWRCTL_CMD_SEND,
-	TM_CMD_SEND,
-	XFR_REQ_COMPL,
-	CLK_SCALE_WORK,
-};
-
-struct ufshcd_clk_ctx {
-	ktime_t ts;
-	enum ufshcd_ctx ctx;
-};
-
 /**
  * struct ufs_stats - keeps usage/err statistics
  * @enabled: enable tag stats for debugfs
@@ -655,13 +639,8 @@ struct ufs_stats {
 	struct ufshcd_io_stat io_readwrite;
 
 #endif
-	u32 last_intr_status;
-	ktime_t last_intr_ts;
-	struct ufshcd_clk_ctx clk_hold;
-	struct ufshcd_clk_ctx clk_rel;
 	u32 hibern8_exit_cnt;
 	ktime_t last_hibern8_exit_tstamp;
-	u32 power_mode_change_cnt;
 	struct ufs_uic_err_reg_hist pa_err;
 	struct ufs_uic_err_reg_hist dl_err;
 	struct ufs_uic_err_reg_hist nl_err;
@@ -1381,7 +1360,7 @@ static inline void ufshcd_vops_remove_debugfs(struct ufs_hba *hba)
 		hba->var->vops->remove_debugfs(hba);
 }
 #else
-static inline void ufshcd_vops_add_debugfs(struct ufs_hba *hba, struct dentry *root)
+static inline void ufshcd_vops_add_debugfs(struct ufs_hba *hba, struct dentry *)
 {
 }
 

@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -16,10 +16,6 @@
  * of the driver from userspace.
  *
  */
-
-#if defined(CONFIG_ANDROID) && !defined(CONFIG_DEBUG_FS)
-#define CONFIG_DEBUG_FS
-#endif
 
 #include <linux/random.h>
 #include "ufs-debugfs.h"
@@ -786,13 +782,13 @@ static int ufshcd_init_statistics(struct ufs_hba *hba)
 	int i;
 
 	stats->enabled = false;
-	stats->tag_stats = kcalloc(hba->nutrs, sizeof(*stats->tag_stats),
-				   GFP_KERNEL);
+	stats->tag_stats = kzalloc(sizeof(*stats->tag_stats) * hba->nutrs,
+			GFP_KERNEL);
 	if (!hba->ufs_stats.tag_stats)
 		goto no_mem;
 
-	stats->tag_stats[0] = kzalloc(array3_size(sizeof(**stats->tag_stats), TS_NUM_STATS, hba->nutrs),
-				      GFP_KERNEL);
+	stats->tag_stats[0] = kzalloc(sizeof(**stats->tag_stats) *
+			TS_NUM_STATS * hba->nutrs, GFP_KERNEL);
 	if (!stats->tag_stats[0])
 		goto no_mem;
 
@@ -1014,10 +1010,6 @@ static int ufsdbg_show_hba_show(struct seq_file *file, void *data)
 	seq_printf(file, "hba->saved_err = 0x%x\n", hba->saved_err);
 	seq_printf(file, "hba->saved_uic_err = 0x%x\n", hba->saved_uic_err);
 
-	seq_printf(file, "power_mode_change_cnt = %d\n",
-			hba->ufs_stats.power_mode_change_cnt);
-	seq_printf(file, "hibern8_exit_cnt = %d\n",
-			hba->ufs_stats.hibern8_exit_cnt);
 	return 0;
 }
 
@@ -1642,16 +1634,6 @@ void ufsdbg_add_debugfs(struct ufs_hba *hba)
 		goto err_no_root;
 	}
 
-	if (IS_ENABLED(CONFIG_BOARD_MUSKIE) || IS_ENABLED(CONFIG_BOARD_TAIMEN)) {
-		debugfs_create_file("dump_health_desc", S_IRUSR,
-			hba->debugfs_files.debugfs_root, hba,
-			&ufsdbg_dump_health_desc);
-		debugfs_create_file("show_hba", S_IRUSR,
-			hba->debugfs_files.debugfs_root, hba,
-			&ufsdbg_show_hba_fops);
-		return;
-	}
-
 	hba->debugfs_files.stats_folder = debugfs_create_dir("stats",
 					hba->debugfs_files.debugfs_root);
 	if (!hba->debugfs_files.stats_folder) {
@@ -1828,11 +1810,8 @@ err_no_root:
 
 void ufsdbg_remove_debugfs(struct ufs_hba *hba)
 {
-#if defined(CONFIG_BOARD_MUSKIE) || defined(CONFIG_BOARD_TAIMEN)
-	debugfs_remove_recursive(hba->debugfs_files.debugfs_root);
-#else
 	ufshcd_vops_remove_debugfs(hba);
 	debugfs_remove_recursive(hba->debugfs_files.debugfs_root);
 	kfree(hba->ufs_stats.tag_stats);
-#endif
+
 }

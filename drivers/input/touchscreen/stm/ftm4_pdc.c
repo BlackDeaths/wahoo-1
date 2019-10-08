@@ -1830,7 +1830,7 @@ static void run_cx_data_read(void *device_data)
 		return;
 	}
 
-	pStr = kcalloc(4, (info->SenseChannelLength + 1), GFP_KERNEL);
+	pStr = kzalloc(4 * (info->SenseChannelLength + 1), GFP_KERNEL);
 	if (pStr == NULL) {
 		tsp_debug_info(&info->client->dev,
 				"%s: pStr kzalloc failed\n", __func__);
@@ -1962,9 +1962,9 @@ static void run_cx_data_read(void *device_data)
 				Max_cxdiffData_tx = cxdiffData_tx[(j*rx_num)+i];
 			if (cxdiffData_tx[(j*rx_num)+i] < Low_cxdiffData_tx)
 				Low_cxdiffData_tx = cxdiffData_tx[(j*rx_num)+i];
-			snprintf(pTmp, sizeof(pTmp), "%4d",
-					cxdiffData_tx[(j*rx_num)+i]);
-			strcat(pStr, pTmp);
+				snprintf(pTmp, sizeof(pTmp), "%4d",
+						cxdiffData_tx[(j*rx_num)+i]);
+				strcat(pStr, pTmp);
 		}
 		tsp_debug_info(&info->client->dev, "FTS %s\n", pStr);
 	}
@@ -2024,7 +2024,7 @@ static void get_cx_all_data(void *device_data)
 	tx_num = info->ForceChannelLength;
 	rx_num = info->SenseChannelLength;
 
-	pStr = kcalloc(4, (info->SenseChannelLength + 1), GFP_KERNEL);
+	pStr = kzalloc(4 * (info->SenseChannelLength + 1), GFP_KERNEL);
 	if (pStr == NULL) {
 		tsp_debug_info(&info->client->dev,
 				"%s: pStr kzalloc failed\n", __func__);

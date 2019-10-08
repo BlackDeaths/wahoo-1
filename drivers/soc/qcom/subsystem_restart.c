@@ -999,19 +999,31 @@ static void subsystem_restart_wq_func(struct work_struct *work)
 	pr_info("[%s:%d]: SUBSYS_AFTER_SHUTDOWN notification end %s\n",
 			current->comm, current->pid, desc->name);
 
-	pr_info("[%s:%d]: SUBSYS_RAMDUMP_NOTIFICATION notification start %s\n",
+	if (strnstr(desc->last_crash_reason, "[disable_ramdump]",
+		strlen(desc->last_crash_reason)) &&
+		!strncmp(desc->name, "modem", sizeof("modem"))) {
+		pr_info("[%s:%d]: Skip subsystem_ramdump for modem restart with disable_ramdump\n",
+			current->comm, current->pid);
+
+		spin_lock_irqsave(&track->s_lock, flags);
+		track->p_state = SUBSYS_RESTARTING;
+		spin_unlock_irqrestore(&track->s_lock, flags);
+	} else {
+		pr_info("[%s:%d]: SUBSYS_RAMDUMP_NOTIFICATION notification start %s\n",
 			current->comm, current->pid, desc->name);
 
-	notify_each_subsys_device(list, count, SUBSYS_RAMDUMP_NOTIFICATION,
-									NULL);
-	pr_info("[%s:%d]: SUBSYS_RAMDUMP_NOTIFICATION notification end %s\n",
+		notify_each_subsys_device(list, count,
+			SUBSYS_RAMDUMP_NOTIFICATION, NULL);
+		pr_info("[%s:%d]: SUBSYS_RAMDUMP_NOTIFICATION notification end %s\n",
 			current->comm, current->pid, desc->name);
-	spin_lock_irqsave(&track->s_lock, flags);
-	track->p_state = SUBSYS_RESTARTING;
-	spin_unlock_irqrestore(&track->s_lock, flags);
 
-	/* Collect ram dumps for all subsystems in order here */
-	for_each_subsys_device(list, count, NULL, subsystem_ramdump);
+		spin_lock_irqsave(&track->s_lock, flags);
+		track->p_state = SUBSYS_RESTARTING;
+		spin_unlock_irqrestore(&track->s_lock, flags);
+
+		/* Collect ram dumps for all subsystems in order here */
+		for_each_subsys_device(list, count, NULL, subsystem_ramdump);
+	}
 
 	for_each_subsys_device(list, count, NULL, subsystem_free_memory);
 
@@ -1453,14 +1465,14 @@ static struct subsys_soc_restart_order *ssr_parse_restart_orders(struct
 	if (!order)
 		return ERR_PTR(-ENOMEM);
 
-	order->subsys_ptrs = devm_kcalloc(dev,
-				count, sizeof(struct subsys_device *),
+	order->subsys_ptrs = devm_kzalloc(dev,
+				count * sizeof(struct subsys_device *),
 				GFP_KERNEL);
 	if (!order->subsys_ptrs)
 		return ERR_PTR(-ENOMEM);
 
-	order->device_ptrs = devm_kcalloc(dev,
-				count, sizeof(struct device_node *),
+	order->device_ptrs = devm_kzalloc(dev,
+				count * sizeof(struct device_node *),
 				GFP_KERNEL);
 	if (!order->device_ptrs)
 		return ERR_PTR(-ENOMEM);

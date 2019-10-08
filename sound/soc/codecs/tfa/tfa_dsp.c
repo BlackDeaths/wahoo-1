@@ -1751,7 +1751,7 @@ enum Tfa98xx_Error tfa98xx_dsp_read_mem(Tfa98xx_handle_t handle,
 	int num_bytes;
 	int *p;
 
-	bytes = kmalloc_array(bytes_per_word, num_words, GFP_KERNEL);
+	bytes = kmalloc(num_words * bytes_per_word, GFP_KERNEL);
 	if (bytes == NULL)
 		return Tfa98xx_Error_Fail;
 
@@ -3141,7 +3141,7 @@ enum tfa_error tfa_start(int next_profile, int *vstep)
 		/* HTC_AUD_START - Turn off Bottom SPK in Receiver mode */
 		if (!strncmp("receiver",
 			     tfaContProfileName(dev, next_profile),
-			     DSTRLEN("receiver")) &&
+			     strlen("receiver")) &&
 		    handles_local[dev].upper_spk == false) {
 			tfa_mute_bottom(dev);
 			continue;
@@ -3208,7 +3208,7 @@ enum tfa_error tfa_start(int next_profile, int *vstep)
 		/* HTC_AUD - Skip Bottom speaker setting in Receiver mode */
 		if (!strncmp("receiver",
 			     tfaContProfileName(dev, next_profile),
-			     DSTRLEN("receiver")) &&
+			     strlen("receiver")) &&
 		    handles_local[dev].upper_spk == false)
 			continue;
 
@@ -3282,7 +3282,7 @@ error_exit:
 		/* HTC_AUD - Skip Bottom speaker setting in Receiver mode */
 		if (!strncmp("receiver",
 			     tfaContProfileName(dev, next_profile),
-			     DSTRLEN("receiver")) &&
+			     strlen("receiver")) &&
 		    handles_local[dev].upper_spk == false)
 			continue;
 		tfaRunUnmute(dev); /* unmute */

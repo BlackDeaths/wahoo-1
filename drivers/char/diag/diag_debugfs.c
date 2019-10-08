@@ -59,7 +59,7 @@ static ssize_t diag_dbgfs_read_status(struct file *file, char __user *ubuf,
 	char *buf;
 	int ret, i;
 	unsigned int buf_size;
-	buf = kzalloc(DEBUG_BUF_SIZE, GFP_KERNEL);
+	buf = kzalloc(sizeof(char) * DEBUG_BUF_SIZE, GFP_KERNEL);
 	if (!buf) {
 		pr_err("diag: %s, Error allocating memory\n", __func__);
 		return -ENOMEM;
@@ -147,7 +147,7 @@ static ssize_t diag_dbgfs_read_dcistats(struct file *file,
 		return 0;
 	}
 
-	buf = kzalloc(buf_size, GFP_KERNEL);
+	buf = kzalloc(sizeof(char) * buf_size, GFP_KERNEL);
 	if (ZERO_OR_NULL_PTR(buf)) {
 		pr_err("diag: %s, Error allocating memory\n", __func__);
 		return -ENOMEM;
@@ -228,7 +228,7 @@ static ssize_t diag_dbgfs_read_power(struct file *file, char __user *ubuf,
 	int ret;
 	unsigned int buf_size;
 
-	buf = kzalloc(DEBUG_BUF_SIZE, GFP_KERNEL);
+	buf = kzalloc(sizeof(char) * DEBUG_BUF_SIZE, GFP_KERNEL);
 	if (!buf) {
 		pr_err("diag: %s, Error allocating memory\n", __func__);
 		return -ENOMEM;
@@ -283,7 +283,7 @@ static ssize_t diag_dbgfs_read_table(struct file *file, char __user *ubuf,
 
 	buf_size = (DEBUG_BUF_SIZE < count) ? DEBUG_BUF_SIZE : count;
 
-	buf = kzalloc(buf_size, GFP_KERNEL);
+	buf = kzalloc(sizeof(char) * buf_size, GFP_KERNEL);
 	if (ZERO_OR_NULL_PTR(buf)) {
 		pr_err("diag: %s, Error allocating memory\n", __func__);
 		mutex_unlock(&driver->cmd_reg_mutex);
@@ -358,7 +358,7 @@ static ssize_t diag_dbgfs_read_mempool(struct file *file, char __user *ubuf,
 		return 0;
 	}
 
-	buf = kzalloc(DEBUG_BUF_SIZE, GFP_KERNEL);
+	buf = kzalloc(sizeof(char) * DEBUG_BUF_SIZE, GFP_KERNEL);
 	if (ZERO_OR_NULL_PTR(buf)) {
 		pr_err("diag: %s, Error allocating memory\n", __func__);
 		return -ENOMEM;
@@ -423,7 +423,7 @@ static ssize_t diag_dbgfs_read_usbinfo(struct file *file, char __user *ubuf,
 		return 0;
 	}
 
-	buf = kzalloc(DEBUG_BUF_SIZE, GFP_KERNEL);
+	buf = kzalloc(sizeof(char) * DEBUG_BUF_SIZE, GFP_KERNEL);
 	if (ZERO_OR_NULL_PTR(buf)) {
 		pr_err("diag: %s, Error allocating memory\n", __func__);
 		return -ENOMEM;
@@ -502,7 +502,7 @@ static ssize_t diag_dbgfs_read_smdinfo(struct file *file, char __user *ubuf,
 		return 0;
 	}
 
-	buf = kzalloc(DEBUG_BUF_SIZE, GFP_KERNEL);
+	buf = kzalloc(sizeof(char) * DEBUG_BUF_SIZE, GFP_KERNEL);
 	if (ZERO_OR_NULL_PTR(buf)) {
 		pr_err("diag: %s, Error allocating memory\n", __func__);
 		return -ENOMEM;
@@ -608,7 +608,7 @@ static ssize_t diag_dbgfs_read_socketinfo(struct file *file, char __user *ubuf,
 		return 0;
 	}
 
-	buf = kzalloc(DEBUG_BUF_SIZE, GFP_KERNEL);
+	buf = kzalloc(sizeof(char) * DEBUG_BUF_SIZE, GFP_KERNEL);
 	if (ZERO_OR_NULL_PTR(buf)) {
 		pr_err("diag: %s, Error allocating memory\n", __func__);
 		return -ENOMEM;
@@ -714,7 +714,7 @@ static ssize_t diag_dbgfs_read_glinkinfo(struct file *file, char __user *ubuf,
 		return 0;
 	}
 
-	buf = kzalloc(DEBUG_BUF_SIZE, GFP_KERNEL);
+	buf = kzalloc(sizeof(char) * DEBUG_BUF_SIZE, GFP_KERNEL);
 	if (!buf)
 		return -ENOMEM;
 
@@ -798,7 +798,6 @@ static ssize_t diag_dbgfs_read_glinkinfo(struct file *file, char __user *ubuf,
 	return ret;
 }
 
-#ifdef CONFIG_IPC_LOGGING
 static ssize_t diag_dbgfs_write_debug(struct file *fp, const char __user *buf,
 				      size_t count, loff_t *ppos)
 {
@@ -829,7 +828,6 @@ static ssize_t diag_dbgfs_write_debug(struct file *fp, const char __user *buf,
 	diag_debug_mask = (uint16_t)value;
 	return count;
 }
-#endif
 
 #ifdef CONFIG_DIAGFWD_BRIDGE_CODE
 #ifdef CONFIG_USB_QCOM_DIAG_BRIDGE
@@ -851,7 +849,7 @@ static ssize_t diag_dbgfs_read_hsicinfo(struct file *file, char __user *ubuf,
 		return 0;
 	}
 
-	buf = kzalloc(DEBUG_BUF_SIZE, GFP_KERNEL);
+	buf = kzalloc(sizeof(char) * DEBUG_BUF_SIZE, GFP_KERNEL);
 	if (ZERO_OR_NULL_PTR(buf)) {
 		pr_err("diag: %s, Error allocating memory\n", __func__);
 		return -ENOMEM;
@@ -923,7 +921,7 @@ static ssize_t diag_dbgfs_read_mhiinfo(struct file *file, char __user *ubuf,
 		return 0;
 	}
 
-	buf = kzalloc(DEBUG_BUF_SIZE, GFP_KERNEL);
+	buf = kzalloc(sizeof(char) * DEBUG_BUF_SIZE, GFP_KERNEL);
 	if (ZERO_OR_NULL_PTR(buf)) {
 		pr_err("diag: %s, Error allocating memory\n", __func__);
 		return -ENOMEM;
@@ -998,7 +996,7 @@ static ssize_t diag_dbgfs_read_bridge(struct file *file, char __user *ubuf,
 		return 0;
 	}
 
-	buf = kzalloc(DEBUG_BUF_SIZE, GFP_KERNEL);
+	buf = kzalloc(sizeof(char) * DEBUG_BUF_SIZE, GFP_KERNEL);
 	if (ZERO_OR_NULL_PTR(buf)) {
 		pr_err("diag: %s, Error allocating memory\n", __func__);
 		return -ENOMEM;
@@ -1087,11 +1085,9 @@ const struct file_operations diag_dbgfs_power_ops = {
 	.read = diag_dbgfs_read_power,
 };
 
-#ifdef CONFIG_IPC_LOGGING
 const struct file_operations diag_dbgfs_debug_ops = {
 	.write = diag_dbgfs_write_debug
 };
-#endif
 
 int diag_debugfs_init(void)
 {
@@ -1146,12 +1142,11 @@ int diag_debugfs_init(void)
 	if (!entry)
 		goto err;
 
-#ifdef CONFIG_IPC_LOGGING
 	entry = debugfs_create_file("debug", 0444, diag_dbgfs_dent, 0,
 				    &diag_dbgfs_debug_ops);
 	if (!entry)
 		goto err;
-#endif
+
 #ifdef CONFIG_DIAGFWD_BRIDGE_CODE
 	entry = debugfs_create_file("bridge", 0444, diag_dbgfs_dent, 0,
 				    &diag_dbgfs_bridge_ops);
@@ -1183,9 +1178,8 @@ int diag_debugfs_init(void)
 	diag_dbgfs_dci_finished = 0;
 
 	/* DCI related structures */
-	dci_traffic = kcalloc(DIAG_DCI_DEBUG_CNT,
-			      sizeof(struct diag_dci_data_info),
-			      GFP_KERNEL);
+	dci_traffic = kzalloc(sizeof(struct diag_dci_data_info) *
+				DIAG_DCI_DEBUG_CNT, GFP_KERNEL);
 	if (ZERO_OR_NULL_PTR(dci_traffic))
 		pr_warn("diag: could not allocate memory for dci debug info\n");
 

@@ -41,7 +41,7 @@ static const char *debug_type[] = {
 	"Always Report Type"
 };
 #define TCI_FAIL_NUM 17
-static const char *tci_debug_str[TCI_FAIL_NUM] = {
+static const char const *tci_debug_str[TCI_FAIL_NUM] = {
 	"NONE",
 	"DISTANCE_INTER_TAP",
 	"DISTANCE_TOUCHSLOP",
@@ -61,7 +61,7 @@ static const char *tci_debug_str[TCI_FAIL_NUM] = {
 	"DEBUG16"
 };
 #define SWIPE_FAIL_NUM 17
-static const char *swipe_debug_str[SWIPE_FAIL_NUM] = {
+static const char const *swipe_debug_str[SWIPE_FAIL_NUM] = {
 	"ERROR",
 	"1FINGER_FAST_RELEASE",
 	"MULTI_FINGER",
@@ -2631,7 +2631,6 @@ int sw49408_check_status(struct device *dev)
 	return ret;
 }
 
-#if 0
 static ssize_t sw49408_get_rn_data(struct device *dev, int16_t *buf, int frame_size)
 {
 	u32 data_offset = 0;
@@ -2647,7 +2646,6 @@ static ssize_t sw49408_get_rn_data(struct device *dev, int16_t *buf, int frame_s
 
 	return 0;
 }
-#endif
 
 int sw49408_irq_abs_data(struct device *dev)
 {
@@ -2789,7 +2787,6 @@ int sw49408_irq_lpwg(struct device *dev)
 	return ret;
 }
 
-#if 0
 void sw49408_irq_runtime_engine_debug(struct device *dev)
 {
 	struct sw49408_data *d = to_sw49408_data(dev);
@@ -2877,13 +2874,10 @@ error:
 	if (rndata != NULL)
 		kfree(rndata);
 }
-#endif
 
 int sw49408_irq_handler(struct device *dev)
 {
-#if 0
 	struct touch_core_data *ts = to_touch_core(dev);
-#endif
 	struct sw49408_data *d = to_sw49408_data(dev);
 	int ret = 0;
 
@@ -2901,11 +2895,9 @@ int sw49408_irq_handler(struct device *dev)
 		ret = sw49408_irq_lpwg(dev);
 	}
 
-#if 0
 	if (atomic_read(&ts->state.debug_option_mask) & DEBUG_OPTION_2)
 		if (d->info.debug.runtime_dbg_inttype > 0)
 			sw49408_irq_runtime_engine_debug(dev);
-#endif
 
 error:
 	return ret;

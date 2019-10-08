@@ -1165,15 +1165,15 @@ static void mdss_dsi_phy_regulator_ctrl(struct mdss_dsi_ctrl_pdata *ctrl,
 				mdss_dsi_20nm_phy_regulator_enable(ctrl);
 				break;
 			default:
-				/*
-				 * For dual dsi case, do not reconfigure dsi phy
-				 * regulator if the other dsi controller is still
-				 * active.
-				 */
-				if (!mdss_dsi_is_hw_config_dual(sdata) ||
-					(other_ctrl && (!other_ctrl->is_phyreg_enabled
-							|| other_ctrl->mmss_clamp)))
-					mdss_dsi_28nm_phy_regulator_enable(ctrl);
+			/*
+			 * For dual dsi case, do not reconfigure dsi phy
+			 * regulator if the other dsi controller is still
+			 * active.
+			 */
+			if (!mdss_dsi_is_hw_config_dual(sdata) ||
+				(other_ctrl && (!other_ctrl->is_phyreg_enabled
+						|| other_ctrl->mmss_clamp)))
+				mdss_dsi_28nm_phy_regulator_enable(ctrl);
 				break;
 			}
 		}
@@ -2386,8 +2386,7 @@ int mdss_dsi_post_clkon_cb(void *priv,
 	}
 	if (clk & MDSS_DSI_LINK_CLK) {
 		/* toggle the resync FIFO everytime clock changes */
-		if ((ctrl->shared_data->phy_rev == DSI_PHY_REV_30) &&
-				!pdata->panel_info.cont_splash_enabled)
+		if (ctrl->shared_data->phy_rev == DSI_PHY_REV_30)
 			mdss_dsi_phy_v3_toggle_resync_fifo(ctrl);
 
 		if (ctrl->ulps) {

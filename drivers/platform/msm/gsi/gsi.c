@@ -1619,8 +1619,8 @@ int gsi_alloc_channel(struct gsi_chan_props *props, unsigned long dev_hdl,
 	}
 
 	memset(ctx, 0, sizeof(*ctx));
-	user_data = devm_kcalloc(gsi_ctx->dev,
-		props->ring_len / props->re_size, sizeof(void *),
+	user_data = devm_kzalloc(gsi_ctx->dev,
+		(props->ring_len / props->re_size) * sizeof(void *),
 		GFP_KERNEL);
 	if (user_data == NULL) {
 		GSIERR("%s:%d gsi context not allocated\n", __func__, __LINE__);
@@ -2525,16 +2525,15 @@ int gsi_config_channel_mode(unsigned long chan_hdl, enum gsi_chan_mode mode)
 	if (curr == GSI_CHAN_MODE_CALLBACK &&
 			mode == GSI_CHAN_MODE_POLL) {
 		__gsi_config_ieob_irq(gsi_ctx->per.ee, 1 << ctx->evtr->id, 0);
-		atomic_set(&ctx->poll_mode, mode);
 		ctx->stats.callback_to_poll++;
 	}
 
 	if (curr == GSI_CHAN_MODE_POLL &&
 			mode == GSI_CHAN_MODE_CALLBACK) {
-		atomic_set(&ctx->poll_mode, mode);
 		__gsi_config_ieob_irq(gsi_ctx->per.ee, 1 << ctx->evtr->id, ~0);
 		ctx->stats.poll_to_callback++;
 	}
+	atomic_set(&ctx->poll_mode, mode);
 	spin_unlock_irqrestore(&gsi_ctx->slock, flags);
 
 	return GSI_STATUS_SUCCESS;

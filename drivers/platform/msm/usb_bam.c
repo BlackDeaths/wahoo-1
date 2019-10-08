@@ -126,13 +126,13 @@ static char *bam_enable_strings[MAX_BAMS] = {
  * CI_CTRL & DWC3_CTRL shouldn't be used simultaneously
  * since both share the same prod & cons rm resourses
  */
-static enum ipa_rm_resource_name ipa_rm_resource_prod[MAX_BAMS] = {
+static enum ipa_client_type ipa_rm_resource_prod[MAX_BAMS] = {
 	[CI_CTRL] = IPA_RM_RESOURCE_USB_PROD,
 	[HSIC_CTRL]  = IPA_RM_RESOURCE_HSIC_PROD,
 	[DWC3_CTRL] = IPA_RM_RESOURCE_USB_PROD,
 };
 
-static enum ipa_rm_resource_name ipa_rm_resource_cons[MAX_BAMS] = {
+static enum ipa_client_type ipa_rm_resource_cons[MAX_BAMS] = {
 	[CI_CTRL] = IPA_RM_RESOURCE_USB_CONS,
 	[HSIC_CTRL]  = IPA_RM_RESOURCE_HSIC_CONS,
 	[DWC3_CTRL] = IPA_RM_RESOURCE_USB_CONS,
@@ -1271,7 +1271,7 @@ static inline int all_pipes_suspended(enum usb_ctrl cur_bam)
 	return info[cur_bam].pipes_suspended == ctx->pipes_enabled_per_bam;
 }
 
-static void usb_bam_finish_suspend(int cur_bam)
+static void usb_bam_finish_suspend(enum usb_ctrl cur_bam)
 {
 	int ret, bam2bam;
 	u32 cons_empty, idx, dst_idx;
@@ -1398,7 +1398,7 @@ no_lpm:
 
 void usb_bam_finish_suspend_(struct work_struct *w)
 {
-	int cur_bam;
+	enum usb_ctrl cur_bam;
 	struct usb_bam_ipa_handshake_info *info_ptr;
 
 	info_ptr = container_of(w, struct usb_bam_ipa_handshake_info,
@@ -2898,10 +2898,8 @@ static struct msm_usb_bam_platform_data *usb_bam_dt_to_pdata(
 		goto err;
 	}
 
-	usb_bam_connections = devm_kcalloc(&pdev->dev,
-					   max_connections,
-					   sizeof(struct usb_bam_pipe_connect),
-					   GFP_KERNEL);
+	usb_bam_connections = devm_kzalloc(&pdev->dev, max_connections *
+		sizeof(struct usb_bam_pipe_connect), GFP_KERNEL);
 
 	if (!usb_bam_connections) {
 		log_event_err("%s: devm_kzalloc failed(%d)\n",
@@ -3081,8 +3079,8 @@ static int enable_usb_bam(struct platform_device *pdev)
 		return ret;
 	}
 
-	ctx->usb_bam_sps.sps_pipes = devm_kcalloc(&pdev->dev,
-		ctx->max_connections, sizeof(struct sps_pipe *),
+	ctx->usb_bam_sps.sps_pipes = devm_kzalloc(&pdev->dev,
+		ctx->max_connections * sizeof(struct sps_pipe *),
 		GFP_KERNEL);
 
 	if (!ctx->usb_bam_sps.sps_pipes) {
@@ -3090,8 +3088,8 @@ static int enable_usb_bam(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
-	ctx->usb_bam_sps.sps_connections = devm_kcalloc(&pdev->dev,
-		ctx->max_connections, sizeof(struct sps_connect),
+	ctx->usb_bam_sps.sps_connections = devm_kzalloc(&pdev->dev,
+		ctx->max_connections * sizeof(struct sps_connect),
 		GFP_KERNEL);
 	if (!ctx->usb_bam_sps.sps_connections) {
 		log_event_err("%s: failed to allocate sps_connections\n",
