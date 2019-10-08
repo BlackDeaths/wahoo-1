@@ -368,11 +368,6 @@ static int dwc3_mode_show(struct seq_file *s, void *unused)
 	unsigned long		flags;
 	u32			reg;
 
-	if (atomic_read(&dwc->in_lpm)) {
-		seq_puts(s, "USB device is powered off\n");
-		return 0;
-	}
-
 	spin_lock_irqsave(&dwc->lock, flags);
 	reg = dwc3_readl(dwc->regs, DWC3_GCTL);
 	spin_unlock_irqrestore(&dwc->lock, flags);
@@ -406,12 +401,7 @@ static ssize_t dwc3_mode_write(struct file *file,
 	struct dwc3		*dwc = s->private;
 	unsigned long		flags;
 	u32			mode = 0;
-	char buf[32] = {};
-
-	if (atomic_read(&dwc->in_lpm)) {
-		dev_err(dwc->dev, "USB device is powered off\n");
-		return count;
-	}
+	char			buf[32];
 
 	if (copy_from_user(&buf, ubuf, min_t(size_t, sizeof(buf) - 1, count)))
 		return -EFAULT;
@@ -446,12 +436,6 @@ static int dwc3_testmode_show(struct seq_file *s, void *unused)
 	struct dwc3		*dwc = s->private;
 	unsigned long		flags;
 	u32			reg;
-
-
-	if (atomic_read(&dwc->in_lpm)) {
-		seq_puts(s, "USB device is powered off\n");
-		return 0;
-	}
 
 	spin_lock_irqsave(&dwc->lock, flags);
 	reg = dwc3_readl(dwc->regs, DWC3_DCTL);
@@ -497,12 +481,7 @@ static ssize_t dwc3_testmode_write(struct file *file,
 	struct dwc3		*dwc = s->private;
 	unsigned long		flags;
 	u32			testmode = 0;
-	char			buf[32] = {};
-
-	if (atomic_read(&dwc->in_lpm)) {
-		seq_puts(s, "USB device is powered off\n");
-		return count;
-	}
+	char			buf[32];
 
 	if (copy_from_user(&buf, ubuf, min_t(size_t, sizeof(buf) - 1, count)))
 		return -EFAULT;
@@ -541,11 +520,6 @@ static int dwc3_link_state_show(struct seq_file *s, void *unused)
 	unsigned long		flags;
 	enum dwc3_link_state	state;
 	u32			reg;
-
-	if (atomic_read(&dwc->in_lpm)) {
-		seq_puts(s, "USB device is powered off\n");
-		return 0;
-	}
 
 	spin_lock_irqsave(&dwc->lock, flags);
 	reg = dwc3_readl(dwc->regs, DWC3_DSTS);
@@ -614,12 +588,7 @@ static ssize_t dwc3_link_state_write(struct file *file,
 	struct dwc3		*dwc = s->private;
 	unsigned long		flags;
 	enum dwc3_link_state	state = 0;
-	char			buf[32] = {};
-
-	if (atomic_read(&dwc->in_lpm)) {
-		seq_puts(s, "USB device is powered off\n");
-		return count;
-	}
+	char			buf[32];
 
 	if (copy_from_user(&buf, ubuf, min_t(size_t, sizeof(buf) - 1, count)))
 		return -EFAULT;
@@ -660,11 +629,13 @@ static ssize_t dwc3_store_ep_num(struct file *file, const char __user *ubuf,
 {
 	struct seq_file		*s = file->private_data;
 	struct dwc3		*dwc = s->private;
-	char			kbuf[10] = {};
+	char			kbuf[10];
 	unsigned int		num, dir, temp;
 	unsigned long		flags;
 
-	if (copy_from_user(kbuf, ubuf, min_t(size_t, sizeof(kbuf) - 1, count)))
+	memset(kbuf, 0, 10);
+
+	if (copy_from_user(kbuf, ubuf, count > 10 ? 10 : count))
 		return -EFAULT;
 
 	if (sscanf(kbuf, "%u %u", &num, &dir) != 2)
@@ -1272,14 +1243,10 @@ int dwc3_debugfs_init(struct dwc3 *dwc)
 	dwc->regset->nregs = ARRAY_SIZE(dwc3_regs);
 	dwc->regset->base = dwc->regs;
 
-	if (dwc->create_reg_debugfs) {
-		file = debugfs_create_regset32("regdump", 0444,
-						root, dwc->regset);
-		if (!file) {
-			dev_dbg(dwc->dev, "Can't create debugfs regdump\n");
-			ret = -ENOMEM;
-			goto err1;
-		}
+	file = debugfs_create_regset32("regdump", S_IRUGO, root, dwc->regset);
+	if (!file) {
+		ret = -ENOMEM;
+		goto err1;
 	}
 
 	if (IS_ENABLED(CONFIG_USB_DWC3_DUAL_ROLE)) {

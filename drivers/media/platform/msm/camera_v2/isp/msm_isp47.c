@@ -202,14 +202,14 @@ static int32_t msm_vfe47_init_dt_parms(struct vfe_device *vfe_dev,
 		pr_err("%s: NO QOS entries found\n", __func__);
 		return -EINVAL;
 	} else {
-		dt_settings = kcalloc(num_dt_entries, sizeof(uint32_t),
-				      GFP_KERNEL);
+		dt_settings = kzalloc(sizeof(uint32_t) * num_dt_entries,
+			GFP_KERNEL);
 		if (!dt_settings) {
 			pr_err("%s:%d No memory\n", __func__, __LINE__);
 			return -ENOMEM;
 		}
-		dt_regs = kcalloc(num_dt_entries, sizeof(uint32_t),
-				  GFP_KERNEL);
+		dt_regs = kzalloc(sizeof(uint32_t) * num_dt_entries,
+			GFP_KERNEL);
 		if (!dt_regs) {
 			pr_err("%s:%d No memory\n", __func__, __LINE__);
 			kfree(dt_settings);
@@ -563,7 +563,6 @@ void msm_vfe47_process_error_status(struct vfe_device *vfe_dev)
 void msm_vfe47_read_and_clear_irq_status(struct vfe_device *vfe_dev,
 	uint32_t *irq_status0, uint32_t *irq_status1)
 {
-	uint32_t count = 0;
 	*irq_status0 = msm_camera_io_r(vfe_dev->vfe_base + 0x6C);
 	*irq_status1 = msm_camera_io_r(vfe_dev->vfe_base + 0x70);
 	/* Mask off bits that are not enabled */
@@ -572,14 +571,6 @@ void msm_vfe47_read_and_clear_irq_status(struct vfe_device *vfe_dev,
 	msm_camera_io_w_mb(1, vfe_dev->vfe_base + 0x58);
 	*irq_status0 &= vfe_dev->irq0_mask;
 	*irq_status1 &= vfe_dev->irq1_mask;
-	/* check if status register is cleared if not clear again*/
-	while (*irq_status0 &&
-		(*irq_status0 & msm_camera_io_r(vfe_dev->vfe_base + 0x6C)) &&
-		(count < MAX_RECOVERY_THRESHOLD)) {
-		msm_camera_io_w(*irq_status0, vfe_dev->vfe_base + 0x64);
-		msm_camera_io_w_mb(1, vfe_dev->vfe_base + 0x58);
-		count++;
-	}
 
 	if (*irq_status1 & (1 << 0)) {
 		vfe_dev->error_info.camif_status =
@@ -1086,18 +1077,15 @@ int msm_vfe47_start_fetch_engine(struct vfe_device *vfe_dev,
 			fe_cfg->stream_id);
 		vfe_dev->fetch_engine_info.bufq_handle = bufq_handle;
 
-		mutex_lock(&vfe_dev->buf_mgr->lock);
 		rc = vfe_dev->buf_mgr->ops->get_buf_by_index(
 			vfe_dev->buf_mgr, bufq_handle, fe_cfg->buf_idx, &buf);
 		if (rc < 0 || !buf) {
 			pr_err("%s: No fetch buffer rc= %d buf= %pK\n",
 				__func__, rc, buf);
-			mutex_unlock(&vfe_dev->buf_mgr->lock);
 			return -EINVAL;
 		}
 		mapped_info = buf->mapped_info[0];
 		buf->state = MSM_ISP_BUFFER_STATE_DISPATCHED;
-		mutex_unlock(&vfe_dev->buf_mgr->lock);
 	} else {
 		rc = vfe_dev->buf_mgr->ops->map_buf(vfe_dev->buf_mgr,
 			&mapped_info, fe_cfg->fd);
@@ -1150,15 +1138,14 @@ int msm_vfe47_start_fetch_engine_multi_pass(struct vfe_device *vfe_dev,
 		mutex_lock(&vfe_dev->buf_mgr->lock);
 		rc = vfe_dev->buf_mgr->ops->get_buf_by_index(
 			vfe_dev->buf_mgr, bufq_handle, fe_cfg->buf_idx, &buf);
+		mutex_unlock(&vfe_dev->buf_mgr->lock);
 		if (rc < 0 || !buf) {
 			pr_err("%s: No fetch buffer rc= %d buf= %pK\n",
 				__func__, rc, buf);
-			mutex_unlock(&vfe_dev->buf_mgr->lock);
 			return -EINVAL;
 		}
 		mapped_info = buf->mapped_info[0];
 		buf->state = MSM_ISP_BUFFER_STATE_DISPATCHED;
-		mutex_unlock(&vfe_dev->buf_mgr->lock);
 	} else {
 		rc = vfe_dev->buf_mgr->ops->map_buf(vfe_dev->buf_mgr,
 			&mapped_info, fe_cfg->fd);
@@ -2776,9 +2763,8 @@ int msm_vfe47_get_regulators(struct vfe_device *vfe_dev)
 	vfe_dev->vfe_num_regulators =
 		sizeof(*vfe_dev->hw_info->regulator_names) / sizeof(char *);
 
-	vfe_dev->regulator_info = kcalloc(vfe_dev->vfe_num_regulators,
-					  sizeof(struct msm_cam_regulator),
-					  GFP_KERNEL);
+	vfe_dev->regulator_info = kzalloc(sizeof(struct msm_cam_regulator) *
+				vfe_dev->vfe_num_regulators, GFP_KERNEL);
 	if (!vfe_dev->regulator_info)
 		return -ENOMEM;
 

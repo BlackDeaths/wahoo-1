@@ -340,18 +340,9 @@ int ipa2_nat_init_cmd(struct ipa_ioc_v4_nat_init *init)
 	u32 offset = 0;
 	size_t tmp;
 
-	mutex_lock(&ipa_ctx->nat_mem.lock);
-
-	if (!ipa_ctx->nat_mem.is_dev_init) {
-		IPAERR_RL("Nat table not initialized\n");
-		mutex_unlock(&ipa_ctx->nat_mem.lock);
-		return -EPERM;
-	}
-
 	IPADBG("\n");
 	if (init->table_entries == 0) {
 		IPADBG("Table entries is zero\n");
-		mutex_unlock(&ipa_ctx->nat_mem.lock);
 		return -EPERM;
 	}
 
@@ -359,9 +350,11 @@ int ipa2_nat_init_cmd(struct ipa_ioc_v4_nat_init *init)
 	if (init->ipv4_rules_offset >
 		(UINT_MAX - (TBL_ENTRY_SIZE * (init->table_entries + 1)))) {
 		IPAERR_RL("Detected overflow\n");
-		mutex_unlock(&ipa_ctx->nat_mem.lock);
 		return -EPERM;
 	}
+
+	mutex_lock(&ipa_ctx->nat_mem.lock);
+
 	/* Check Table Entry offset is not
 	   beyond allocated size */
 	tmp = init->ipv4_rules_offset +
@@ -602,11 +595,6 @@ int ipa2_nat_dma_cmd(struct ipa_ioc_nat_dma_cmd *dma)
 	u16 size = 0, cnt = 0;
 	int ret = 0;
 
-	if (!ipa_ctx->nat_mem.is_dev_init) {
-		IPAERR_RL("Nat table not initialized\n");
-		return -EPERM;
-	}
-
 	IPADBG("\n");
 	if (dma->entries <= 0) {
 		IPAERR_RL("Invalid number of commands %d\n",
@@ -791,16 +779,6 @@ int ipa2_nat_del_cmd(struct ipa_ioc_v4_nat_del *del)
 	u8 mem_type = IPA_NAT_SHARED_MEMORY;
 	u32 base_addr = IPA_NAT_PHYS_MEM_OFFSET;
 	int result;
-
-	if (!ipa_ctx->nat_mem.is_dev_init) {
-		IPAERR_RL("Nat table not initialized\n");
-		return -EPERM;
-	}
-
-	if (!ipa_ctx->nat_mem.public_ip_addr) {
-		IPAERR_RL("Public IP addr not assigned and trying to delete\n");
-		return -EPERM;
-	}
 
 	IPADBG("\n");
 	if (ipa_ctx->nat_mem.is_tmp_mem) {

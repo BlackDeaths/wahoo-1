@@ -406,8 +406,6 @@ module_param_named(
 static int fg_restart;
 static bool fg_sram_dump;
 
-#define FG_RATE_LIM_MS (5 * MSEC_PER_SEC)
-
 /* All getters HERE */
 
 #define VOLTAGE_15BIT_MASK	GENMASK(14, 0)
@@ -1324,15 +1322,6 @@ static bool batt_psy_initialized(struct fg_chip *chip)
 	fg_notify_charger(chip);
 
 	return true;
-}
-
-static bool usb_psy_initialized(struct fg_chip *chip)
-{
-	if (chip->usb_psy)
-		return true;
-
-	chip->usb_psy = power_supply_get_by_name("usb");
-	return chip->usb_psy;
 }
 
 static bool is_parallel_charger_available(struct fg_chip *chip)
@@ -2363,8 +2352,8 @@ static void fg_batt_avg_update(struct fg_chip *chip)
 
 	if (chip->charge_status == POWER_SUPPLY_STATUS_CHARGING ||
 			chip->charge_status == POWER_SUPPLY_STATUS_DISCHARGING)
-		queue_delayed_work(system_power_efficient_wq,
-			&chip->batt_avg_work, msecs_to_jiffies(2000));
+		schedule_delayed_work(&chip->batt_avg_work,
+							msecs_to_jiffies(2000));
 }
 
 static void status_change_work(struct work_struct *work)
@@ -2961,9 +2950,8 @@ static void sram_dump_work(struct work_struct *work)
 	fg_dbg(chip, FG_STATUS, "SRAM Dump done at %lld.%d\n",
 		quotient, remainder);
 resched:
-	queue_delayed_work(system_power_efficient_wq,
-		&chip->sram_dump_work,
-		msecs_to_jiffies(fg_sram_dump_period_ms));
+	schedule_delayed_work(&chip->sram_dump_work,
+			msecs_to_jiffies(fg_sram_dump_period_ms));
 }
 
 static int fg_sram_dump_sysfs(const char *val, const struct kernel_param *kp)
@@ -2990,9 +2978,8 @@ static int fg_sram_dump_sysfs(const char *val, const struct kernel_param *kp)
 
 	chip = power_supply_get_drvdata(bms_psy);
 	if (fg_sram_dump)
-		queue_delayed_work(system_power_efficient_wq,
-			&chip->sram_dump_work,
-			msecs_to_jiffies(fg_sram_dump_period_ms));
+		schedule_delayed_work(&chip->sram_dump_work,
+				msecs_to_jiffies(fg_sram_dump_period_ms));
 	else
 		cancel_delayed_work_sync(&chip->sram_dump_work);
 
@@ -3072,9 +3059,8 @@ static void batt_avg_work(struct work_struct *work)
 
 reschedule:
 	mutex_unlock(&chip->batt_avg_lock);
-	queue_delayed_work(system_power_efficient_wq,
-		&chip->batt_avg_work,
-		msecs_to_jiffies(BATT_AVG_POLL_PERIOD_MS));
+	schedule_delayed_work(&chip->batt_avg_work,
+			      msecs_to_jiffies(BATT_AVG_POLL_PERIOD_MS));
 }
 
 #define HOURS_TO_SECONDS	3600
@@ -3360,35 +3346,7 @@ static int fg_psy_get_property(struct power_supply *psy,
 				       union power_supply_propval *pval)
 {
 	struct fg_chip *chip = power_supply_get_drvdata(psy);
-	struct fg_saved_data *sd = chip->saved_data + psp;
-	union power_supply_propval typec_sts = { .intval = -1 };
 	int rc = 0;
-
-	switch (psp) {
-	case POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN:
-	case POWER_SUPPLY_PROP_RESISTANCE_ID:
-	case POWER_SUPPLY_PROP_VOLTAGE_MAX_DESIGN:
-	case POWER_SUPPLY_PROP_CYCLE_COUNT_ID:
-	case POWER_SUPPLY_PROP_CHARGE_NOW:
-	case POWER_SUPPLY_PROP_CHARGE_FULL:
-	case POWER_SUPPLY_PROP_SOC_REPORTING_READY:
-		/* These props don't require a fg query; don't ratelimit them */
-		break;
-	default:
-		if (!sd->last_req_expires)
-			break;
-
-		if (usb_psy_initialized(chip))
-			power_supply_get_property(chip->usb_psy,
-				POWER_SUPPLY_PROP_TYPEC_MODE, &typec_sts);
-
-		if (typec_sts.intval == POWER_SUPPLY_TYPEC_NONE &&
-			time_before(jiffies, sd->last_req_expires)) {
-			*pval = sd->val;
-			return 0;
-		}
-		break;
-	}
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_CAPACITY:
@@ -3473,9 +3431,6 @@ static int fg_psy_get_property(struct power_supply *psy,
 
 	if (rc < 0)
 		return -ENODATA;
-
-	sd->val = *pval;
-	sd->last_req_expires = jiffies + msecs_to_jiffies(FG_RATE_LIM_MS);
 
 	return 0;
 }
@@ -3996,8 +3951,7 @@ static irqreturn_t fg_batt_missing_irq_handler(int irq, void *data)
 	}
 
 	clear_battery_profile(chip);
-	queue_delayed_work(system_power_efficient_wq,
-		&chip->profile_load_work, 0);
+	schedule_delayed_work(&chip->profile_load_work, 0);
 
 	if (chip->fg_psy)
 		power_supply_changed(chip->fg_psy);
@@ -5021,14 +4975,12 @@ static int fg_gen3_probe(struct platform_device *pdev)
 	/* Keep BATT_MISSING_IRQ disabled until we require it */
 	vote(chip->batt_miss_irq_en_votable, BATT_MISS_IRQ_VOTER, false, 0);
 
-#ifdef CONFIG_DEBUG_FS
 	rc = fg_debugfs_create(chip);
 	if (rc < 0) {
 		dev_err(chip->dev, "Error in creating debugfs entries, rc:%d\n",
 			rc);
 		goto exit;
 	}
-#endif
 
 	/* TODO(b/37486656): Remove the WAR when bootloader change is
 	 * integrated.
@@ -5058,8 +5010,7 @@ static int fg_gen3_probe(struct platform_device *pdev)
 	}
 
 	device_init_wakeup(chip->dev, true);
-	queue_delayed_work(system_power_efficient_wq,
-		&chip->profile_load_work, 0);
+	schedule_delayed_work(&chip->profile_load_work, 0);
 
 	pr_debug("FG GEN3 driver probed successfully\n");
 	return 0;
@@ -5094,12 +5045,10 @@ static int fg_gen3_resume(struct device *dev)
 
 	fg_circ_buf_clr(&chip->ibatt_circ_buf);
 	fg_circ_buf_clr(&chip->vbatt_circ_buf);
-	queue_delayed_work(system_power_efficient_wq,
-		&chip->batt_avg_work, 0);
+	schedule_delayed_work(&chip->batt_avg_work, 0);
 	if (fg_sram_dump)
-		queue_delayed_work(system_power_efficient_wq,
-			&chip->sram_dump_work,
-			msecs_to_jiffies(fg_sram_dump_period_ms));
+		schedule_delayed_work(&chip->sram_dump_work,
+				msecs_to_jiffies(fg_sram_dump_period_ms));
 	return 0;
 }
 

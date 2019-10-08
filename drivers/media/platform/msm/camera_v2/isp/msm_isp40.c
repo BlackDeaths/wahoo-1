@@ -154,14 +154,14 @@ static int32_t msm_vfe40_init_qos_parms(struct vfe_device *vfe_dev,
 	if (rc < 0 || !qos_entries) {
 		pr_err("%s: NO QOS entries found\n", __func__);
 	} else {
-		qos_settings = kcalloc(qos_entries, sizeof(uint32_t),
-				       GFP_KERNEL);
+		qos_settings = kzalloc(sizeof(uint32_t) * qos_entries,
+			GFP_KERNEL);
 		if (!qos_settings) {
 			pr_err("%s:%d No memory\n", __func__, __LINE__);
 			return -ENOMEM;
 		}
-		qos_regs = kcalloc(qos_entries, sizeof(uint32_t),
-				   GFP_KERNEL);
+		qos_regs = kzalloc(sizeof(uint32_t) * qos_entries,
+			GFP_KERNEL);
 		if (!qos_regs) {
 			pr_err("%s:%d No memory\n", __func__, __LINE__);
 			kfree(qos_settings);
@@ -201,14 +201,14 @@ static int32_t msm_vfe40_init_qos_parms(struct vfe_device *vfe_dev,
 	if (rc < 0 || !ds_entries) {
 		pr_err("%s: NO D/S entries found\n", __func__);
 	} else {
-		ds_settings = kcalloc(ds_entries, sizeof(uint32_t),
-				      GFP_KERNEL);
+		ds_settings = kzalloc(sizeof(uint32_t) * ds_entries,
+				GFP_KERNEL);
 		if (!ds_settings) {
 			pr_err("%s:%d No memory\n", __func__, __LINE__);
 			return -ENOMEM;
 		}
-		ds_regs = kcalloc(ds_entries, sizeof(uint32_t),
-				  GFP_KERNEL);
+		ds_regs = kzalloc(sizeof(uint32_t) * ds_entries,
+				GFP_KERNEL);
 		if (!ds_regs) {
 			pr_err("%s:%d No memory\n", __func__, __LINE__);
 			kfree(ds_settings);
@@ -230,12 +230,12 @@ static int32_t msm_vfe40_init_qos_parms(struct vfe_device *vfe_dev,
 						__func__);
 					kfree(ds_settings);
 					kfree(ds_regs);
-				} else {
+	} else {
 					for (i = 0; i < ds_entries; i++)
 						msm_camera_io_w(ds_settings[i],
 							vfebase + ds_regs[i]);
-					kfree(ds_regs);
-					kfree(ds_settings);
+						kfree(ds_regs);
+						kfree(ds_settings);
 				}
 			} else {
 				kfree(ds_regs);
@@ -260,14 +260,14 @@ static int32_t msm_vfe40_init_vbif_parms(struct vfe_device *vfe_dev,
 	if (rc < 0 || !vbif_entries) {
 		pr_err("%s: NO VBIF entries found\n", __func__);
 	} else {
-		vbif_settings = kcalloc(vbif_entries, sizeof(uint32_t),
-					GFP_KERNEL);
+		vbif_settings = kzalloc(sizeof(uint32_t) * vbif_entries,
+			GFP_KERNEL);
 		if (!vbif_settings) {
 			pr_err("%s:%d No memory\n", __func__, __LINE__);
 			return -ENOMEM;
 		}
-		vbif_regs = kcalloc(vbif_entries, sizeof(uint32_t),
-				    GFP_KERNEL);
+		vbif_regs = kzalloc(sizeof(uint32_t) * vbif_entries,
+			GFP_KERNEL);
 		if (!vbif_regs) {
 			pr_err("%s:%d No memory\n", __func__, __LINE__);
 			kfree(vbif_settings);
@@ -1045,18 +1045,15 @@ static int msm_vfe40_start_fetch_engine(struct vfe_device *vfe_dev,
 				fe_cfg->stream_id);
 		vfe_dev->fetch_engine_info.bufq_handle = bufq_handle;
 
-		mutex_lock(&vfe_dev->buf_mgr->lock);
 		rc = vfe_dev->buf_mgr->ops->get_buf_by_index(
 			vfe_dev->buf_mgr, bufq_handle, fe_cfg->buf_idx, &buf);
 		if (rc < 0 || !buf) {
 			pr_err("%s: No fetch buffer rc= %d buf= %pK\n",
 				__func__, rc, buf);
-			mutex_unlock(&vfe_dev->buf_mgr->lock);
 			return -EINVAL;
 		}
 		mapped_info = buf->mapped_info[0];
 		buf->state = MSM_ISP_BUFFER_STATE_DISPATCHED;
-		mutex_unlock(&vfe_dev->buf_mgr->lock);
 	} else {
 		rc = vfe_dev->buf_mgr->ops->map_buf(vfe_dev->buf_mgr,
 			&mapped_info, fe_cfg->fd);
@@ -1109,15 +1106,14 @@ static int msm_vfe40_start_fetch_engine_multi_pass(struct vfe_device *vfe_dev,
 		mutex_lock(&vfe_dev->buf_mgr->lock);
 		rc = vfe_dev->buf_mgr->ops->get_buf_by_index(
 			vfe_dev->buf_mgr, bufq_handle, fe_cfg->buf_idx, &buf);
+		mutex_unlock(&vfe_dev->buf_mgr->lock);
 		if (rc < 0 || !buf) {
 			pr_err("%s: No fetch buffer rc= %d buf= %pK\n",
 				__func__, rc, buf);
-			mutex_unlock(&vfe_dev->buf_mgr->lock);
 			return -EINVAL;
 		}
 		mapped_info = buf->mapped_info[0];
 		buf->state = MSM_ISP_BUFFER_STATE_DISPATCHED;
-		mutex_unlock(&vfe_dev->buf_mgr->lock);
 	} else {
 		rc = vfe_dev->buf_mgr->ops->map_buf(vfe_dev->buf_mgr,
 			&mapped_info, fe_cfg->fd);

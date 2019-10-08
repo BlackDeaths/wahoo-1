@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2017, 2019 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -34,14 +34,12 @@
 enum {
 	AFE_COMMON_RX_CAL = 0,
 	AFE_COMMON_TX_CAL,
-	AFE_LSM_TX_CAL,
 	AFE_AANC_CAL,
 	AFE_FB_SPKR_PROT_CAL,
 	AFE_HW_DELAY_CAL,
 	AFE_SIDETONE_CAL,
 	AFE_SIDETONE_IIR_CAL,
 	AFE_TOPOLOGY_CAL,
-	AFE_LSM_TOPOLOGY_CAL,
 	AFE_CUST_TOPOLOGY_CAL,
 	AFE_FB_SPKR_PROT_TH_VI_CAL,
 	AFE_FB_SPKR_PROT_EX_VI_CAL,
@@ -293,6 +291,15 @@ static int32_t sp_make_afe_callback(uint32_t *payload, uint32_t payload_size)
 	return 0;
 }
 
+static bool afe_token_is_valid(uint32_t token)
+{
+	if (token >= AFE_MAX_PORTS) {
+		pr_err("%s: token %d is invalid.\n", __func__, token);
+		return false;
+	}
+	return true;
+}
+
 static int32_t afe_callback(struct apr_client_data *data, void *priv)
 {
 	if (!data) {
@@ -397,7 +404,10 @@ static int32_t afe_callback(struct apr_client_data *data, void *priv)
 			case AFE_PORTS_CMD_DTMF_CTL:
 			case AFE_SVC_CMD_SET_PARAM:
 				atomic_set(&this_afe.state, 0);
-				wake_up(&this_afe.wait[data->token]);
+				if (afe_token_is_valid(data->token))
+					wake_up(&this_afe.wait[data->token]);
+				else
+					return -EINVAL;
 				break;
 			case AFE_SERVICE_CMD_REGISTER_RT_PORT_DRIVER:
 				break;
@@ -409,7 +419,10 @@ static int32_t afe_callback(struct apr_client_data *data, void *priv)
 				break;
 			case AFE_CMD_ADD_TOPOLOGIES:
 				atomic_set(&this_afe.state, 0);
-				wake_up(&this_afe.wait[data->token]);
+				if (afe_token_is_valid(data->token))
+					wake_up(&this_afe.wait[data->token]);
+				else
+					return -EINVAL;
 				pr_debug("%s: AFE_CMD_ADD_TOPOLOGIES cmd 0x%x\n",
 						__func__, payload[1]);
 				break;
@@ -431,7 +444,10 @@ static int32_t afe_callback(struct apr_client_data *data, void *priv)
 			else
 				this_afe.mmap_handle = payload[0];
 			atomic_set(&this_afe.state, 0);
-			wake_up(&this_afe.wait[data->token]);
+			if (afe_token_is_valid(data->token))
+				wake_up(&this_afe.wait[data->token]);
+			else
+				return -EINVAL;
 		} else if (data->opcode == AFE_EVENT_RT_PROXY_PORT_STATUS) {
 			port_id = (uint16_t)(0x0000FFFF & payload[0]);
 		}
@@ -1328,15 +1344,14 @@ err_exit:
 	return NULL;
 }
 
-static int afe_get_cal_topology_id(u16 port_id, u32 *topology_id,
-				   int cal_type_index)
+static int afe_get_cal_topology_id(u16 port_id, u32 *topology_id)
 {
 	int ret = 0;
 
 	struct cal_block_data   *cal_block = NULL;
 	struct audio_cal_info_afe_top   *afe_top_info = NULL;
 
-	if (this_afe.cal_data[cal_type_index] == NULL) {
+	if (this_afe.cal_data[AFE_TOPOLOGY_CAL] == NULL) {
 		pr_err("%s: [AFE_TOPOLOGY_CAL] not initialized\n", __func__);
 		return -EINVAL;
 	}
@@ -1346,9 +1361,9 @@ static int afe_get_cal_topology_id(u16 port_id, u32 *topology_id,
 	}
 	*topology_id = 0;
 
-	mutex_lock(&this_afe.cal_data[cal_type_index]->lock);
+	mutex_lock(&this_afe.cal_data[AFE_TOPOLOGY_CAL]->lock);
 	cal_block = afe_find_cal_topo_id_by_port(
-		this_afe.cal_data[cal_type_index], port_id);
+		this_afe.cal_data[AFE_TOPOLOGY_CAL], port_id);
 	if (cal_block == NULL) {
 		pr_err("%s: [AFE_TOPOLOGY_CAL] not initialized for this port %d\n",
 				__func__, port_id);
@@ -1370,7 +1385,7 @@ static int afe_get_cal_topology_id(u16 port_id, u32 *topology_id,
 		__func__, port_id, afe_top_info->acdb_id,
 		afe_top_info->topology, ret);
 unlock:
-	mutex_unlock(&this_afe.cal_data[cal_type_index]->lock);
+	mutex_unlock(&this_afe.cal_data[AFE_TOPOLOGY_CAL]->lock);
 	return ret;
 }
 
@@ -1388,12 +1403,7 @@ static int afe_send_port_topology_id(u16 port_id)
 		return -EINVAL;
 	}
 
-	ret = afe_get_cal_topology_id(port_id, &topology_id, AFE_TOPOLOGY_CAL);
-	if (ret < 0) {
-		pr_debug("%s: Check for LSM topology\n", __func__);
-		ret = afe_get_cal_topology_id(port_id, &topology_id,
-					      AFE_LSM_TOPOLOGY_CAL);
-	}
+	ret = afe_get_cal_topology_id(port_id, &topology_id);
 	if (ret || !topology_id) {
 		pr_debug("%s: AFE port[%d] get_cal_topology[%d] invalid!\n",
 				__func__, port_id, topology_id);
@@ -1510,7 +1520,7 @@ exit:
 	return cal_block;
 }
 
-static int send_afe_cal_type(int cal_index, int port_id)
+static void send_afe_cal_type(int cal_index, int port_id)
 {
 	struct cal_block_data		*cal_block = NULL;
 	int ret;
@@ -1521,22 +1531,19 @@ static int send_afe_cal_type(int cal_index, int port_id)
 	if (this_afe.cal_data[cal_index] == NULL) {
 		pr_warn("%s: cal_index %d not allocated!\n",
 			__func__, cal_index);
-		ret = -EINVAL;
 		goto done;
 	}
 
 	if (afe_port_index < 0) {
 		pr_err("%s: Error getting AFE port index %d\n",
 			__func__, afe_port_index);
-		ret = -EINVAL;
 		goto done;
 	}
 
 	mutex_lock(&this_afe.cal_data[cal_index]->lock);
 
 	if (((cal_index == AFE_COMMON_RX_CAL) ||
-	     (cal_index == AFE_COMMON_TX_CAL) ||
-	     (cal_index == AFE_LSM_TX_CAL)) &&
+	     (cal_index == AFE_COMMON_TX_CAL)) &&
 	    (this_afe.dev_acdb_id[afe_port_index] > 0))
 		cal_block = afe_find_cal(cal_index, port_id);
 	else
@@ -1545,7 +1552,6 @@ static int send_afe_cal_type(int cal_index, int port_id)
 
 	if (cal_block == NULL) {
 		pr_err("%s cal_block not found!!\n", __func__);
-		ret = -EINVAL;
 		goto unlock;
 	}
 
@@ -1555,7 +1561,6 @@ static int send_afe_cal_type(int cal_index, int port_id)
 	if (ret) {
 		pr_err("%s: Remap_cal_data failed for cal %d!\n",
 			__func__, cal_index);
-		ret = -EINVAL;
 		goto unlock;
 	}
 	ret = afe_send_cal_block(port_id, cal_block);
@@ -1565,20 +1570,16 @@ static int send_afe_cal_type(int cal_index, int port_id)
 unlock:
 	mutex_unlock(&this_afe.cal_data[cal_index]->lock);
 done:
-	return ret;
+	return;
 }
 
 void afe_send_cal(u16 port_id)
 {
-	int ret;
-
 	pr_debug("%s: port_id=0x%x\n", __func__, port_id);
 
 	if (afe_get_port_type(port_id) == MSM_AFE_PORT_TYPE_TX) {
 		afe_send_cal_spkr_prot_tx(port_id);
-		ret = send_afe_cal_type(AFE_COMMON_TX_CAL, port_id);
-		if (ret < 0)
-			send_afe_cal_type(AFE_LSM_TX_CAL, port_id);
+		send_afe_cal_type(AFE_COMMON_TX_CAL, port_id);
 	} else if (afe_get_port_type(port_id) == MSM_AFE_PORT_TYPE_RX) {
 		afe_send_cal_spkr_prot_rx(port_id);
 		send_afe_cal_type(AFE_COMMON_RX_CAL, port_id);
@@ -6456,9 +6457,6 @@ static int get_cal_type_index(int32_t cal_type)
 	case AFE_COMMON_TX_CAL_TYPE:
 		ret = AFE_COMMON_TX_CAL;
 		break;
-	case AFE_LSM_TX_CAL_TYPE:
-		ret = AFE_LSM_TX_CAL;
-		break;
 	case AFE_AANC_CAL_TYPE:
 		ret = AFE_AANC_CAL;
 		break;
@@ -6476,9 +6474,6 @@ static int get_cal_type_index(int32_t cal_type)
 		break;
 	case AFE_TOPOLOGY_CAL_TYPE:
 		ret = AFE_TOPOLOGY_CAL;
-		break;
-	case AFE_LSM_TOPOLOGY_CAL_TYPE:
-		ret = AFE_LSM_TOPOLOGY_CAL;
 		break;
 	case AFE_CUST_TOPOLOGY_CAL_TYPE:
 		ret = AFE_CUST_TOPOLOGY_CAL;
@@ -6977,12 +6972,6 @@ static int afe_init_cal_data(void)
 		{afe_map_cal_data, afe_unmap_cal_data,
 		cal_utils_match_buf_num} },
 
-		{{AFE_LSM_TX_CAL_TYPE,
-		{afe_alloc_cal, afe_dealloc_cal, NULL,
-		afe_set_cal, NULL, NULL} },
-		{afe_map_cal_data, afe_unmap_cal_data,
-		cal_utils_match_buf_num} },
-
 		{{AFE_AANC_CAL_TYPE,
 		{afe_alloc_cal, afe_dealloc_cal, NULL,
 		afe_set_cal, NULL, NULL} },
@@ -7010,12 +6999,6 @@ static int afe_init_cal_data(void)
 		{NULL, NULL, cal_utils_match_buf_num} },
 
 		{{AFE_TOPOLOGY_CAL_TYPE,
-		{NULL, NULL, NULL,
-		afe_set_cal, NULL, NULL} },
-		{NULL, NULL,
-		cal_utils_match_buf_num} },
-
-		{{AFE_LSM_TOPOLOGY_CAL_TYPE,
 		{NULL, NULL, NULL,
 		afe_set_cal, NULL, NULL} },
 		{NULL, NULL,

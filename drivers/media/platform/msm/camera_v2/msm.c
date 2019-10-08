@@ -611,6 +611,9 @@ static inline int __msm_remove_session_cmd_ack_q(void *d1, void *d2)
 {
 	struct msm_command_ack *cmd_ack = d1;
 
+	if (!(&cmd_ack->command_q))
+		return 0;
+
 	msm_queue_drain(&cmd_ack->command_q, struct msm_command, list);
 
 	return 0;
@@ -618,7 +621,7 @@ static inline int __msm_remove_session_cmd_ack_q(void *d1, void *d2)
 
 static void msm_remove_session_cmd_ack_q(struct msm_session *session)
 {
-	if (!session)
+	if ((!session) || !(&session->command_ack_q))
 		return;
 
 	mutex_lock(&session->lock);
@@ -1259,7 +1262,7 @@ static ssize_t write_logsync(struct file *file, const char __user *buf,
 	uint64_t seq_num = 0;
 	int ret;
 
-	if (copy_from_user(lbuf, buf, sizeof(lbuf) - 1))
+	if (copy_from_user(lbuf, buf, sizeof(lbuf)))
 		return -EFAULT;
 
 	ret = sscanf(lbuf, "%llu", &seq_num);
@@ -1317,8 +1320,8 @@ static int msm_probe(struct platform_device *pdev)
 	if (WARN_ON(rc < 0))
 		goto media_fail;
 
-	rc = media_entity_init(&pvdev->vdev->entity, 0, NULL, 0);
-	if (WARN_ON(rc < 0))
+	if (WARN_ON((rc == media_entity_init(&pvdev->vdev->entity,
+			0, NULL, 0)) < 0))
 		goto entity_fail;
 
 	pvdev->vdev->entity.type = MEDIA_ENT_T_DEVNODE_V4L;

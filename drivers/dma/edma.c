@@ -1057,7 +1057,8 @@ static struct dma_async_tx_descriptor *edma_prep_slave_sg(
 		return NULL;
 	}
 
-	edesc = kzalloc(struct_size(edesc, pset, sg_len), GFP_ATOMIC);
+	edesc = kzalloc(sizeof(*edesc) + sg_len * sizeof(edesc->pset[0]),
+			GFP_ATOMIC);
 	if (!edesc) {
 		dev_err(dev, "%s: Failed to allocate a descriptor\n", __func__);
 		return NULL;
@@ -1173,7 +1174,8 @@ static struct dma_async_tx_descriptor *edma_prep_dma_memcpy(
 			nslots = 2;
 	}
 
-	edesc = kzalloc(struct_size(edesc, pset, nslots), GFP_ATOMIC);
+	edesc = kzalloc(sizeof(*edesc) + nslots * sizeof(edesc->pset[0]),
+			GFP_ATOMIC);
 	if (!edesc) {
 		dev_dbg(dev, "Failed to allocate a descriptor\n");
 		return NULL;
@@ -1283,7 +1285,8 @@ static struct dma_async_tx_descriptor *edma_prep_dma_cyclic(
 	if (nslots > MAX_NR_SG)
 		return NULL;
 
-	edesc = kzalloc(struct_size(edesc, pset, nslots), GFP_ATOMIC);
+	edesc = kzalloc(sizeof(*edesc) + nslots * sizeof(edesc->pset[0]),
+			GFP_ATOMIC);
 	if (!edesc) {
 		dev_err(dev, "%s: Failed to allocate a descriptor\n", __func__);
 		return NULL;
@@ -2215,9 +2218,6 @@ static int edma_probe(struct platform_device *pdev)
 
 	ecc->default_queue = info->default_queue;
 
-	for (i = 0; i < ecc->num_slots; i++)
-		edma_write_slot(ecc, i, &dummy_paramset);
-
 	if (info->rsv) {
 		/* Set the reserved slots in inuse list */
 		rsv_slots = info->rsv->rsv_slots;
@@ -2228,6 +2228,12 @@ static int edma_probe(struct platform_device *pdev)
 				set_bits(off, ln, ecc->slot_inuse);
 			}
 		}
+	}
+
+	for (i = 0; i < ecc->num_slots; i++) {
+		/* Reset only unused - not reserved - paRAM slots */
+		if (!test_bit(i, ecc->slot_inuse))
+			edma_write_slot(ecc, i, &dummy_paramset);
 	}
 
 	/* Clear the xbar mapped channels in unused list */

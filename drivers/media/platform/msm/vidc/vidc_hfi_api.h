@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2016, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2016,2019 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -20,15 +20,17 @@
 #include <media/msm_vidc.h>
 #include "msm_vidc_resources.h"
 
-#define CONTAINS(__a, __sz, __t) (\
-	(__t >= __a) && \
-	(__t < __a + __sz) \
-)
+#define CONTAINS(__a, __sz, __t) ({\
+	int __rc = __t >= __a && \
+			__t < __a + __sz; \
+	__rc; \
+})
 
-#define OVERLAPS(__t, __tsz, __a, __asz) (\
-	(__t <= __a) && \
-	(__t + __tsz >= __a + __asz) \
-)
+#define OVERLAPS(__t, __tsz, __a, __asz) ({\
+	int __rc = __t <= __a && \
+			__t + __tsz >= __a + __asz; \
+	__rc; \
+})
 
 #define HAL_BUFFERFLAG_EOS              0x00000001
 #define HAL_BUFFERFLAG_STARTTIME        0x00000002
@@ -64,6 +66,9 @@
 
 /* 16 encoder and 16 decoder sessions */
 #define VIDC_MAX_SESSIONS               32
+#define VIDC_MAX_DECODE_SESSIONS        16
+#define VIDC_MAX_ENCODE_SESSIONS        16
+
 
 enum vidc_status {
 	VIDC_ERR_NONE = 0x0,

@@ -165,30 +165,6 @@ int mdss_dsi_panel_cmd_read(struct mdss_dsi_ctrl_pdata *ctrl, char cmd0,
 	return mdss_dsi_cmdlist_put(ctrl, &cmdreq);
 }
 
-static int mdss_dsi_panel_hbm_cmds_send(struct mdss_dsi_ctrl_pdata *ctrl,
-			struct dsi_panel_cmds *pcmds)
-{
-	struct dcs_cmd_req cmdreq;
-	struct mdss_panel_info *pinfo;
-
-	pinfo = &(ctrl->panel_data.panel_info);
-	if (pinfo->dcs_cmd_by_left) {
-		if (ctrl->ndx != DSI_CTRL_LEFT)
-			return -EINVAL;
-	}
-
-	memset(&cmdreq, 0, sizeof(cmdreq));
-	cmdreq.cmds = pcmds->cmds;
-	cmdreq.cmds_cnt = pcmds->cmd_cnt;
-	cmdreq.flags = CMD_REQ_COMMIT | CMD_REQ_HS_MODE;
-	cmdreq.rlen = 0;
-	cmdreq.cb = NULL;
-
-	mdss_dsi_cmdlist_put(ctrl, &cmdreq);
-
-	return 0;
-}
-
 static void mdss_dsi_panel_apply_settings(struct mdss_dsi_ctrl_pdata *ctrl,
 			struct dsi_panel_cmds *pcmds)
 {
@@ -348,9 +324,6 @@ void mdss_dsi_err_detect_irq_control(struct mdss_dsi_ctrl_pdata *ctrl_pdata, boo
 
 	if (!gpio_is_valid(ctrl_pdata->disp_err_detect_gpio))
 		  return;
-
-	if (cmpxchg(&ctrl_pdata->err_detect_irq_en, !enable, enable) == enable)
-		return;
 
 	irq = gpio_to_irq(ctrl_pdata->disp_err_detect_gpio);
 
@@ -615,14 +588,14 @@ static char paset_dual[] = {0x2b, 0x00, 0x00, 0x05, 0x00, 0x03,
 
 /* pack into one frame before sent */
 static struct dsi_cmd_desc set_col_page_addr_cmd[] = {
-	{{DTYPE_DCS_LWRITE, 0, 0, 0, 0, sizeof(caset)}, caset},	/* packed */
-	{{DTYPE_DCS_LWRITE, 0, 0, 0, 0, sizeof(paset)}, paset},
+	{{DTYPE_DCS_LWRITE, 0, 0, 0, 1, sizeof(caset)}, caset},	/* packed */
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 1, sizeof(paset)}, paset},
 };
 
 /* pack into one frame before sent */
 static struct dsi_cmd_desc set_dual_col_page_addr_cmd[] = {	/*packed*/
-	{{DTYPE_DCS_LWRITE, 0, 0, 0, 0, sizeof(caset_dual)}, caset_dual},
-	{{DTYPE_DCS_LWRITE, 0, 0, 0, 0, sizeof(paset_dual)}, paset_dual},
+	{{DTYPE_DCS_LWRITE, 0, 0, 0, 1, sizeof(caset_dual)}, caset_dual},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 1, sizeof(paset_dual)}, paset_dual},
 };
 
 
@@ -1121,9 +1094,6 @@ static int mdss_dsi_panel_off(struct mdss_panel_data *pdata)
 	if (pinfo->err_detect_enabled)
 		mdss_dsi_err_detect_irq_control(ctrl, false);
 
-	if (ctrl->set_hbm)
-		ctrl->set_hbm(ctrl, 0);
-
 	if (ctrl->off_cmds.cmd_cnt)
 		mdss_dsi_panel_cmds_send(ctrl, &ctrl->off_cmds, CMD_REQ_COMMIT);
 
@@ -1258,7 +1228,7 @@ static int mdss_dsi_parse_dcs_cmds(struct device_node *np,
 		return -ENOMEM;
 	}
 
-	buf = kzalloc(blen, GFP_KERNEL);
+	buf = kzalloc(sizeof(char) * blen, GFP_KERNEL);
 	if (!buf)
 		return -ENOMEM;
 
@@ -1289,7 +1259,7 @@ static int mdss_dsi_parse_dcs_cmds(struct device_node *np,
 		goto exit_free;
 	}
 
-	pcmds->cmds = kcalloc(cnt, sizeof(struct dsi_cmd_desc),
+	pcmds->cmds = kzalloc(cnt * sizeof(struct dsi_cmd_desc),
 						GFP_KERNEL);
 	if (!pcmds->cmds)
 		goto exit_free;
@@ -2193,8 +2163,8 @@ static void mdss_dsi_parse_esd_params(struct device_node *np,
 		goto error1;
 	}
 
-	ctrl->status_value = kzalloc(array3_size(sizeof(u32), status_len, ctrl->groups),
-				     GFP_KERNEL);
+	ctrl->status_value = kzalloc(sizeof(u32) * status_len * ctrl->groups,
+				GFP_KERNEL);
 	if (!ctrl->status_value)
 		goto error1;
 
@@ -2589,7 +2559,7 @@ static void mdss_dsi_parse_panel_horizintal_line_idle(struct device_node *np,
 
 	cnt = len / sizeof(u32);
 
-	kp = kcalloc(cnt / 3, sizeof(*kp), GFP_KERNEL);
+	kp = kzalloc(sizeof(*kp) * (cnt / 3), GFP_KERNEL);
 	if (kp == NULL) {
 		pr_err("%s: No memory\n", __func__);
 		return;
@@ -2970,24 +2940,19 @@ static int mdss_panel_parse_display_timings(struct device_node *np,
 
 	timings_np = of_get_child_by_name(np, "qcom,mdss-dsi-display-timings");
 	if (!timings_np) {
-		struct dsi_panel_timing *pt;
-
-		pt = kzalloc(sizeof(*pt), GFP_KERNEL);
-		if (!pt)
-			return -ENOMEM;
+		struct dsi_panel_timing pt;
+		memset(&pt, 0, sizeof(struct dsi_panel_timing));
 
 		/*
 		 * display timings node is not available, fallback to reading
 		 * timings directly from root node instead
 		 */
 		pr_debug("reading display-timings from panel node\n");
-		rc = mdss_dsi_panel_timing_from_dt(np, pt, panel_data);
+		rc = mdss_dsi_panel_timing_from_dt(np, &pt, panel_data);
 		if (!rc) {
-			mdss_dsi_panel_config_res_properties(np, pt,
+			mdss_dsi_panel_config_res_properties(np, &pt,
 					panel_data, true);
-			rc = mdss_dsi_panel_timing_switch(ctrl, &pt->timing);
-		} else {
-			kfree(pt);
+			rc = mdss_dsi_panel_timing_switch(ctrl, &pt.timing);
 		}
 		return rc;
 	}
@@ -3033,67 +2998,6 @@ static int mdss_panel_parse_display_timings(struct device_node *np,
 
 exit:
 	of_node_put(timings_np);
-
-	return rc;
-}
-
-static int mdss_panel_parse_hbm(struct device_node *np,
-				struct mdss_panel_info *pinfo,
-				struct mdss_dsi_ctrl_pdata *ctrl_pdata)
-{
-	int rc;
-	const char *data;
-
-	pinfo->hbm_state = 0;
-	pinfo->hbm_feature_enabled = 0;
-
-	data = of_get_property(np, "qcom,mdss-dsi-hbm-on-command", NULL);
-	if (!data)
-		return 0;
-
-	rc = mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->hbm_on_cmds,
-				"qcom,mdss-dsi-hbm-on-command", NULL);
-	if (rc) {
-		pr_err("%s : Failed parsing HBM on commands, rc = %d\n",
-			__func__, rc);
-		return rc;
-	}
-
-	rc = mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->hbm_off_cmds,
-				"qcom,mdss-dsi-hbm-off-command", NULL);
-	if (rc) {
-		pr_err("%s : Failed parsing HBM off commands, rc = %d\n",
-			__func__, rc);
-		return rc;
-	}
-	pinfo->hbm_feature_enabled = 1;
-	return 0;
-}
-
-int mdss_dsi_panel_set_hbm(struct mdss_dsi_ctrl_pdata *ctrl, int state)
-{
-	int rc;
-	if (!ctrl->panel_data.panel_info.hbm_feature_enabled) {
-		pr_debug("HBM is disabled, ignore request\n");
-		return 0;
-	}
-
-	if (ctrl->panel_data.panel_info.hbm_state == state) {
-		pr_debug("HBM already in request state %d\n",
-			state);
-		return 0;
-	}
-
-	if (state)
-		rc = mdss_dsi_panel_hbm_cmds_send(ctrl, &ctrl->hbm_on_cmds);
-	else
-		rc = mdss_dsi_panel_hbm_cmds_send(ctrl, &ctrl->hbm_off_cmds);
-
-	if (!rc)
-		ctrl->panel_data.panel_info.hbm_state = state;
-	else
-		pr_err("%s : Failed to set HBM state to %d\n",
-			__func__, state);
 
 	return rc;
 }
@@ -3355,11 +3259,6 @@ static int mdss_panel_parse_dt(struct device_node *np,
 		pinfo->esc_clk_rate_hz = MDSS_DSI_MAX_ESC_CLK_RATE_HZ;
 	pr_debug("%s: esc clk %d\n", __func__, pinfo->esc_clk_rate_hz);
 
-	if (mdss_panel_parse_hbm(np, pinfo, ctrl_pdata)) {
-		pr_err("Error parsing HBM\n");
-		goto error;
-	}
-
 	return 0;
 
 error:
@@ -3411,7 +3310,6 @@ int mdss_dsi_panel_init(struct device_node *node,
 			mdss_dsi_panel_apply_display_setting;
 	ctrl_pdata->switch_mode = mdss_dsi_panel_switch_mode;
 	ctrl_pdata->alpm_mode = ALPM_MODE_OFF;
-	ctrl_pdata->set_hbm = mdss_dsi_panel_set_hbm;
 
 	return 0;
 }

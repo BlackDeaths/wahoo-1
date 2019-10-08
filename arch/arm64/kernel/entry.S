@@ -685,15 +685,13 @@ el0_ia:
 	 * Instruction abort handling
 	 */
 	mrs	x26, far_el1
-	enable_dbg
-#ifdef CONFIG_TRACE_IRQFLAGS
-	bl	trace_hardirqs_off
-#endif
+	// enable interrupts before calling the main handler
+	enable_dbg_and_irq
 	ct_user_exit
 	mov	x0, x26
 	mov	x1, x25
 	mov	x2, sp
-	bl	do_el0_ia_bp_hardening
+	bl	do_mem_abort
 	b	ret_to_user
 el0_fpsimd_acc:
 	/*
@@ -940,7 +938,6 @@ el0_svc_naked:					// compat entry point
 	b.ne	__sys_trace
 	cmp     scno, sc_nr                     // check upper syscall limit
 	b.hs	ni_sys
-	mask_nospec64 scno, sc_nr, x19		// enforce bounds for syscall number
 	ldr	x16, [stbl, scno, lsl #3]	// address in the syscall table
 	blr	x16				// call sys_* routine
 	b	ret_fast_syscall
@@ -988,7 +985,6 @@ __ni_sys_trace:
 	b	__sys_trace_return
 
 	.popsection				// .entry.text
-
 #ifdef CONFIG_UNMAP_KERNEL_AT_EL0
 /*
  * Exception vectors trampoline.

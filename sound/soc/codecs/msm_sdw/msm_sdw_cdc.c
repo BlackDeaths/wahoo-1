@@ -256,8 +256,8 @@ static int msm_int_enable_sdw_cdc_clk(struct msm_sdw_priv *msm_sdw,
 			msm_sdw->int_mclk1_enabled = false;
 		}
 	}
-rtn:
 	mutex_unlock(&msm_sdw->cdc_int_mclk1_mutex);
+rtn:
 	return ret;
 }
 EXPORT_SYMBOL(msm_int_enable_sdw_cdc_clk);
@@ -1798,7 +1798,7 @@ static void msm_sdw_add_child_devices(struct work_struct *work)
 			strlcpy(plat_dev_name, "msm_sdw_swr_ctrl",
 				(MSM_SDW_STRING_LEN - 1));
 		else if (strnstr(node->name, "msm_cdc_pinctrl",
-				 DSTRLEN("msm_cdc_pinctrl")) != NULL)
+				 strlen("msm_cdc_pinctrl")) != NULL)
 			strlcpy(plat_dev_name, node->name,
 				(MSM_SDW_STRING_LEN - 1));
 		else

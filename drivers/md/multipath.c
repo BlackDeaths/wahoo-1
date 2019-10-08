@@ -166,7 +166,7 @@ static int multipath_congested(struct mddev *mddev, int bits)
 		if (rdev && !test_bit(Faulty, &rdev->flags)) {
 			struct request_queue *q = bdev_get_queue(rdev->bdev);
 
-			ret |= bdi_congested(q->backing_dev_info, bits);
+			ret |= bdi_congested(&q->backing_dev_info, bits);
 			/* Just like multipath_map, we just check the
 			 * first available device
 			 */
@@ -403,8 +403,7 @@ static int multipath_run (struct mddev *mddev)
 		goto out;
 	}
 
-	conf->multipaths = kcalloc(mddev->raid_disks,
-				   sizeof(struct multipath_info),
+	conf->multipaths = kzalloc(sizeof(struct multipath_info)*mddev->raid_disks,
 				   GFP_KERNEL);
 	if (!conf->multipaths) {
 		printk(KERN_ERR

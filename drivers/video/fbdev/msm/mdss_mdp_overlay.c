@@ -1172,7 +1172,7 @@ struct mdss_mdp_data *mdss_mdp_overlay_buf_alloc(struct msm_fb_data_type *mfd,
 		pr_debug("allocating %u bufs for fb%d\n",
 					BUF_POOL_SIZE, mfd->index);
 
-		buf = kcalloc(BUF_POOL_SIZE, sizeof(*buf), GFP_KERNEL);
+		buf = kzalloc(sizeof(*buf) * BUF_POOL_SIZE, GFP_KERNEL);
 		if (!buf) {
 			pr_err("Unable to allocate buffer pool\n");
 			return NULL;
@@ -2357,8 +2357,6 @@ static void __overlay_set_secure_transition_state(struct msm_fb_data_type *mfd)
 	/* Reset the secure transition state */
 	mdp5_data->secure_transition_state = SECURE_TRANSITION_NONE;
 
-	mdp5_data->cache_null_commit = list_empty(&mdp5_data->pipes_used);
-
 	/*
 	 * Secure transition would be NONE in two conditions:
 	 * 1. All the features are already disabled and state remains
@@ -2561,7 +2559,6 @@ int mdss_mdp_overlay_kickoff(struct msm_fb_data_type *mfd,
 	ATRACE_BEGIN("sspp_programming");
 	ret = __overlay_queue_pipes(mfd);
 	ATRACE_END("sspp_programming");
-
 	mutex_unlock(&mdp5_data->list_lock);
 
 	mdp5_data->kickoff_released = false;
@@ -3380,7 +3377,7 @@ static void dfps_update_panel_params(struct mdss_panel_data *pdata,
 		dfps_update_fps(&pdata->panel_info, new_fps);
 
 		pdata->panel_info.prg_fet =
-			mdss_mdp_get_prefetch_lines(&pdata->panel_info, false);
+			mdss_mdp_get_prefetch_lines(&pdata->panel_info);
 
 	} else if (pdata->panel_info.dfps_update ==
 			DFPS_IMMEDIATE_PORCH_UPDATE_MODE_HFP) {
@@ -3558,84 +3555,6 @@ static struct attribute *dynamic_fps_fs_attrs[] = {
 };
 static struct attribute_group dynamic_fps_fs_attrs_group = {
 	.attrs = dynamic_fps_fs_attrs,
-};
-
-static ssize_t hbm_show(struct device *dev,
-			struct device_attribute *attr, char *buf)
-{
-	struct fb_info *fbi = dev_get_drvdata(dev);
-	struct msm_fb_data_type *mfd = (struct msm_fb_data_type *)fbi->par;
-	struct mdss_mdp_ctl *ctl = mfd_to_ctl(mfd);
-
-	if (!ctl) {
-		pr_warning("there is no ctl attached to fb\n");
-		return -ENODEV;
-	}
-
-	return snprintf(buf, PAGE_SIZE, "%d\n",
-			ctl->panel_data->panel_info.hbm_state);
-}
-
-static ssize_t hbm_store(struct device *dev,
-			struct device_attribute *attr,
-			const char *buf, size_t count)
-{
-	struct fb_info *fbi = dev_get_drvdata(dev);
-	struct msm_fb_data_type *mfd = (struct msm_fb_data_type *)fbi->par;
-	struct mdss_mdp_ctl *ctl = mfd_to_ctl(mfd);
-	int enable;
-	int r;
-
-	if (!ctl) {
-		pr_warning("there is no ctl attached to fb\n");
-		r = -ENODEV;
-		goto end;
-	}
-
-	r = kstrtoint(buf, 0, &enable);
-	if ((r) || ((enable != 0) && (enable != 1))) {
-		pr_err("invalid HBM value = %d\n",
-			enable);
-		r = -EINVAL;
-		goto end;
-	}
-
-	mutex_lock(&ctl->offlock);
-	if (!mdss_fb_is_power_on(mfd)) {
-		pr_warning("panel is not powered\n");
-		r = -EPERM;
-		goto unlock;
-	}
-
-	mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_ON);
-	r = mdss_mdp_ctl_intf_event(ctl, MDSS_EVENT_ENABLE_HBM,
-				(void *)(unsigned long)enable,
-				CTL_INTF_EVENT_FLAG_DEFAULT);
-	if (r) {
-		pr_err("Failed sending HBM command, r = %d\n", r);
-		r = -EFAULT;
-	} else
-		pr_info("HBM state changed by sysfs, state = %d\n", enable);
-
-	mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_OFF);
-
-unlock:
-	mutex_unlock(&ctl->offlock);
-
-end:
-	return r ? r : count;
-}
-
-static DEVICE_ATTR(hbm, S_IWUSR | S_IWGRP | S_IRUSR | S_IRGRP,
-		hbm_show, hbm_store);
-
-static struct attribute *hbm_attrs[] = {
-	&dev_attr_hbm.attr,
-	NULL,
-};
-
-static struct attribute_group hbm_attrs_group = {
-	.attrs = hbm_attrs,
 };
 
 static ssize_t mdss_mdp_vsync_show_event(struct device *dev,
@@ -4468,7 +4387,7 @@ static int mdss_mdp_hw_cursor_pipe_update(struct msm_fb_data_type *mfd,
 	if (!mfd->cursor_buf && (cursor->set & FB_CUR_SETIMAGE)) {
 		ret = mdss_smmu_dma_alloc_coherent(&pdev->dev,
 			cursor_frame_size, (dma_addr_t *) &mfd->cursor_buf_phys,
-			&mfd->cursor_buf_iova, &mfd->cursor_buf,
+			&mfd->cursor_buf_iova, mfd->cursor_buf,
 			GFP_KERNEL, MDSS_IOMMU_DOMAIN_UNSECURE);
 		if (ret) {
 			pr_err("can't allocate cursor buffer rc:%d\n", ret);
@@ -4656,7 +4575,7 @@ static int mdss_mdp_hw_cursor_update(struct msm_fb_data_type *mfd,
 	if (!mfd->cursor_buf && (cursor->set & FB_CUR_SETIMAGE)) {
 		ret = mdss_smmu_dma_alloc_coherent(&pdev->dev,
 			cursor_frame_size, (dma_addr_t *) &mfd->cursor_buf_phys,
-			&mfd->cursor_buf_iova, &mfd->cursor_buf,
+			&mfd->cursor_buf_iova, mfd->cursor_buf,
 			GFP_KERNEL, MDSS_IOMMU_DOMAIN_UNSECURE);
 		if (ret) {
 			pr_err("can't allocate cursor buffer rc:%d\n", ret);
@@ -4704,7 +4623,7 @@ static int mdss_mdp_hw_cursor_update(struct msm_fb_data_type *mfd,
 
 	mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_ON);
 
-	if (mfd->cursor_buf && (cursor->set & FB_CUR_SETIMAGE)) {
+	if (cursor->set & FB_CUR_SETIMAGE) {
 		u32 cursor_addr;
 		ret = copy_from_user(mfd->cursor_buf, img->data,
 				     img->width * img->height * 4);
@@ -5259,7 +5178,7 @@ static int __handle_overlay_prepare(struct msm_fb_data_type *mfd,
 	}
 
 	if (sort_needed) {
-		sorted_ovs = kcalloc(num_ovs, sizeof(*ip_ovs), GFP_KERNEL);
+		sorted_ovs = kzalloc(num_ovs * sizeof(*ip_ovs), GFP_KERNEL);
 		if (!sorted_ovs) {
 			pr_err("error allocating ovlist mem\n");
 			mutex_unlock(&mdp5_data->ov_lock);
@@ -5393,8 +5312,7 @@ static int __handle_ioctl_overlay_prepare(struct msm_fb_data_type *mfd,
 		return -EINVAL;
 	}
 
-	overlays = kmalloc_array(ovlist.num_overlays, sizeof(*overlays),
-				 GFP_KERNEL);
+	overlays = kmalloc(ovlist.num_overlays * sizeof(*overlays), GFP_KERNEL);
 	if (!overlays) {
 		pr_err("Unable to allocate memory for overlays\n");
 		return -ENOMEM;
@@ -6167,9 +6085,6 @@ static void __vsync_retire_signal(struct msm_fb_data_type *mfd, int val)
 		sw_sync_timeline_inc(mdp5_data->vsync_timeline, val);
 
 		mdp5_data->retire_cnt -= min(val, mdp5_data->retire_cnt);
-		pr_debug("Retire signaled! timeline val=%d remaining=%d\n",
-				mdp5_data->vsync_timeline->value,
-				mdp5_data->retire_cnt);
 		if (mdp5_data->retire_cnt == 0) {
 			mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_ON);
 			mdp5_data->ctl->ops.remove_vsync_handler(mdp5_data->ctl,
@@ -6276,7 +6191,7 @@ static int __vsync_retire_setup(struct msm_fb_data_type *mfd)
 	init_kthread_worker(&mdp5_data->worker);
 	init_kthread_work(&mdp5_data->vsync_work, __vsync_retire_work_handler);
 
-	mdp5_data->thread = kthread_run_perf_critical(kthread_worker_fn,
+	mdp5_data->thread = kthread_run(kthread_worker_fn,
 					&mdp5_data->worker, "vsync_retire_work");
 
 	if (IS_ERR(mdp5_data->thread)) {
@@ -6391,13 +6306,6 @@ static void mdss_mdp_footswitch_ctrl_handler(bool on)
 	mdss_mdp_footswitch_ctrl(mdata, on);
 }
 
-static void mdss_mdp_signal_retire_fence(struct msm_fb_data_type *mfd,
-						int retire_cnt)
-{
-	__vsync_retire_signal(mfd, retire_cnt);
-	pr_debug("Signaled (%d) pending retire fence\n", retire_cnt);
-}
-
 int mdss_mdp_overlay_init(struct msm_fb_data_type *mfd)
 {
 	struct device *dev = mfd->fbi->dev;
@@ -6439,7 +6347,6 @@ int mdss_mdp_overlay_init(struct msm_fb_data_type *mfd)
 	mdp5_interface->splash_init_fnc = mdss_mdp_splash_init;
 	mdp5_interface->configure_panel = mdss_mdp_update_panel_info;
 	mdp5_interface->input_event_handler = mdss_mdp_input_event_handler;
-	mdp5_interface->signal_retire_fence = mdss_mdp_signal_retire_fence;
 
 	/*
 	 * Register footswitch control only for primary fb pm
@@ -6590,15 +6497,6 @@ int mdss_mdp_overlay_init(struct msm_fb_data_type *mfd)
 			&dynamic_fps_fs_attrs_group);
 		if (rc) {
 			pr_err("Error dfps sysfs creation ret=%d\n", rc);
-			goto init_fail;
-		}
-	}
-
-	if (mfd->panel_info->hbm_feature_enabled) {
-		rc = sysfs_create_group(&dev->kobj,
-					&hbm_attrs_group);
-		if (rc) {
-			pr_err("Error for HBM sysfs creation ret = %d\n", rc);
 			goto init_fail;
 		}
 	}

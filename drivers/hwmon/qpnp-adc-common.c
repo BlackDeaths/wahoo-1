@@ -1287,7 +1287,7 @@ int32_t qpnp_adc_scale_default(struct qpnp_vadc_chip *vadc,
 	} else {
 		qpnp_adc_scale_with_calib_param(adc_code, adc_properties,
 					chan_properties, &scale_voltage);
-		if (chan_properties->calib_type)
+		if (!chan_properties->calib_type == CALIB_ABSOLUTE)
 			scale_voltage *= 1000;
 	}
 
@@ -1336,7 +1336,7 @@ int32_t qpnp_adc_scale_custom(
 		qpnp_adc_scale_with_calib_param(adc_code, adc_properties,
 						chan_properties,
 						&scale_voltage);
-		if (chan_properties->calib_type)
+		if (!chan_properties->calib_type == CALIB_ABSOLUTE)
 			scale_voltage *= 1000;
 	}
 
@@ -2122,10 +2122,10 @@ int32_t qpnp_adc_get_devicetree_data(struct platform_device *pdev,
 							"goog,custom-map");
 			if (custom_map_size > 0 && custom_map_size % 2 == 0) {
 				custom_map_size /= 2;
-				custom_map = devm_kcalloc(
+				custom_map = devm_kzalloc(
 						&pdev->dev,
-						custom_map_size,
-						sizeof(struct qpnp_vadc_map_pt),
+						sizeof(struct qpnp_vadc_map_pt)
+							* custom_map_size,
 						GFP_KERNEL);
 				if (!custom_map)
 					return -ENOMEM;

@@ -198,14 +198,14 @@ enum tsens_tm_trip_type {
 #define TSENS_TM_WRITABLE_TRIPS_MASK ((1 << TSENS_TM_TRIP_NUM) - 1)
 
 struct tsens_thrshld_state {
-	enum thermal_trip_activation_mode	high_th_state;
-	enum thermal_trip_activation_mode	low_th_state;
-	enum thermal_trip_activation_mode	crit_th_state;
-	unsigned int				high_adc_code;
-	unsigned int				low_adc_code;
-	int					high_temp;
-	int					low_temp;
-	int					crit_temp;
+	enum thermal_device_mode	high_th_state;
+	enum thermal_device_mode	low_th_state;
+	enum thermal_device_mode	crit_th_state;
+	unsigned int			high_adc_code;
+	unsigned int			low_adc_code;
+	int				high_temp;
+	int				low_temp;
+	int				crit_temp;
 };
 
 struct tsens_tm_device_sensor {
@@ -1839,8 +1839,8 @@ static irqreturn_t tsens_tm_critical_irq_thread(int irq, void *data)
 				TSENS_TM_CRITICAL_INT_CLEAR(
 					tm->tsens_addr));
 			critical_thr = true;
-			tm->sensor[i].debug_thr_state_copy.crit_th_state =
-				THERMAL_TRIP_ACTIVATION_DISABLED;
+			tm->sensor[i].debug_thr_state_copy.
+					crit_th_state = THERMAL_DEVICE_DISABLED;
 		}
 		spin_unlock_irqrestore(&tm->tsens_crit_lock, flags);
 
@@ -1921,8 +1921,8 @@ static irqreturn_t tsens_tm_irq_thread(int irq, void *data)
 				TSENS_TM_UPPER_LOWER_INT_CLEAR(
 					tm->tsens_addr));
 			upper_thr = true;
-			tm->sensor[i].debug_thr_state_copy.high_th_state =
-				THERMAL_TRIP_ACTIVATION_DISABLED;
+			tm->sensor[i].debug_thr_state_copy.
+					high_th_state = THERMAL_DEVICE_DISABLED;
 		}
 
 		if ((status & TSENS_TM_SN_STATUS_LOWER_STATUS) &&
@@ -1942,8 +1942,8 @@ static irqreturn_t tsens_tm_irq_thread(int irq, void *data)
 				TSENS_TM_UPPER_LOWER_INT_CLEAR(
 					tm->tsens_addr));
 			lower_thr = true;
-			tm->sensor[i].debug_thr_state_copy.low_th_state =
-				THERMAL_TRIP_ACTIVATION_DISABLED;
+			tm->sensor[i].debug_thr_state_copy.
+					low_th_state = THERMAL_DEVICE_DISABLED;
 		}
 		spin_unlock_irqrestore(&tm->tsens_upp_low_lock, flags);
 
@@ -2020,16 +2020,16 @@ static irqreturn_t tsens_irq_thread(int irq, void *data)
 				TSENS_S0_UPPER_LOWER_STATUS_CTRL_ADDR(
 					tm->tsens_addr + addr_offset));
 			upper_thr = true;
-			tm->sensor[i].debug_thr_state_copy.high_th_state =
-				THERMAL_TRIP_ACTIVATION_DISABLED;
+			tm->sensor[i].debug_thr_state_copy.
+					high_th_state = THERMAL_DEVICE_DISABLED;
 		}
 		if (status & TSENS_SN_STATUS_LOWER_STATUS) {
 			writel_relaxed(threshold | TSENS_LOWER_STATUS_CLR,
 				TSENS_S0_UPPER_LOWER_STATUS_CTRL_ADDR(
 					tm->tsens_addr + addr_offset));
 			lower_thr = true;
-			tm->sensor[i].debug_thr_state_copy.low_th_state =
-				THERMAL_TRIP_ACTIVATION_DISABLED;
+			tm->sensor[i].debug_thr_state_copy.
+					low_th_state = THERMAL_DEVICE_DISABLED;
 		}
 		if (upper_thr || lower_thr) {
 			int temp;
@@ -2144,8 +2144,8 @@ static int get_device_tree_data(struct platform_device *pdev,
 		pr_debug("Using controller programmed gain and offset\n");
 		tmdev->gain_offset_programmed = true;
 	} else {
-		tsens_slope_data = devm_kcalloc(&pdev->dev,
-			tsens_num_sensors, sizeof(u32), GFP_KERNEL);
+		tsens_slope_data = devm_kzalloc(&pdev->dev,
+			tsens_num_sensors * sizeof(u32), GFP_KERNEL);
 		if (!tsens_slope_data)
 			return -ENOMEM;
 
@@ -2181,13 +2181,13 @@ static int get_device_tree_data(struct platform_device *pdev,
 	tmdev->tsens_local_init = of_property_read_bool(of_node,
 				"qcom,tsens-local-init");
 
-	sensor_id = devm_kcalloc(&pdev->dev,
-		tsens_num_sensors, sizeof(u32), GFP_KERNEL);
+	sensor_id = devm_kzalloc(&pdev->dev,
+		tsens_num_sensors * sizeof(u32), GFP_KERNEL);
 	if (!sensor_id)
 		return -ENOMEM;
 
-	client_id = devm_kcalloc(&pdev->dev,
-		tsens_num_sensors, sizeof(u32), GFP_KERNEL);
+	client_id = devm_kzalloc(&pdev->dev,
+		tsens_num_sensors * sizeof(u32), GFP_KERNEL);
 	if (!client_id)
 		return -ENOMEM;
 
@@ -2289,8 +2289,8 @@ static int get_device_tree_data(struct platform_device *pdev,
 		}
 	}
 
-	temp1_calib_offset_factor = devm_kcalloc(&pdev->dev,
-			tsens_num_sensors, sizeof(u32), GFP_KERNEL);
+	temp1_calib_offset_factor = devm_kzalloc(&pdev->dev,
+			tsens_num_sensors * sizeof(u32), GFP_KERNEL);
 	if (!temp1_calib_offset_factor)
 		return -ENOMEM;
 
@@ -2308,8 +2308,8 @@ static int get_device_tree_data(struct platform_device *pdev,
 						temp1_calib_offset_factor[i];
 	}
 
-	temp2_calib_offset_factor = devm_kcalloc(&pdev->dev,
-			tsens_num_sensors, sizeof(u32), GFP_KERNEL);
+	temp2_calib_offset_factor = devm_kzalloc(&pdev->dev,
+			tsens_num_sensors * sizeof(u32), GFP_KERNEL);
 	if (!temp2_calib_offset_factor)
 		return -ENOMEM;
 

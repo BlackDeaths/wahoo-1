@@ -55,10 +55,6 @@
 #include <linux/trustedui.h>
 #endif
 
-#ifdef CONFIG_WAKE_GESTURES
-#include <linux/wake_gestures.h>
-#endif
-
 #ifdef CONFIG_OF
 #ifndef USE_OPEN_CLOSE
 #define USE_OPEN_CLOSE
@@ -100,19 +96,8 @@ static int fts_suspend(struct i2c_client *client, pm_message_t mesg);
 static int fts_resume(struct i2c_client *client);
 
 #if defined(CONFIG_FB)
-static void touch_resume_worker(struct work_struct *work);
-static void touch_suspend_worker(struct work_struct *work);
 static int touch_fb_notifier_callback(struct notifier_block *self,
 		unsigned long event, void *data);
-#endif
-
-#ifdef CONFIG_WAKE_GESTURES
-static bool suspended = false;
-
-bool scr_suspended_taimen(void)
-{
-	return suspended;
-}
 #endif
 
 static int fts_ts_get_property(struct power_supply *psy,
@@ -835,15 +820,15 @@ static int fts_init(struct fts_ts_info *info)
 			return rc;
 		}
 		info->pFrame =
-			kzalloc(array3_size(info->SenseChannelLength, info->ForceChannelLength, 2),
+			kzalloc(info->SenseChannelLength * info->ForceChannelLength * 2,
 				GFP_KERNEL);
 		if (info->pFrame == NULL) {
 			tsp_debug_err(&info->client->dev,
 						"FTS pFrame kzalloc Failed\n");
 			return -ENOMEM;
 		}
-		info->cx_data = kcalloc(info->SenseChannelLength,
-					info->ForceChannelLength, GFP_KERNEL);
+		info->cx_data = kzalloc(info->SenseChannelLength *
+						info->ForceChannelLength, GFP_KERNEL);
 		if (!info->cx_data)
 			tsp_debug_err(&info->client->dev,
 					"%s: cx_data kzalloc Failed\n", __func__);
@@ -1036,10 +1021,10 @@ static unsigned char fts_event_handler_type_b(struct fts_ts_info *info,
 			info->fts_power_state );
 #endif
 
-		if (info->fts_power_state == FTS_POWER_STATE_LOWPOWER)
-			EventID = data[EventNum * FTS_EVENT_SIZE] & 0xFF;
-		else
-			EventID = data[EventNum * FTS_EVENT_SIZE] & 0x0F;
+	if (info->fts_power_state == FTS_POWER_STATE_LOWPOWER)
+		EventID = data[EventNum * FTS_EVENT_SIZE] & 0xFF;
+	else
+		EventID = data[EventNum * FTS_EVENT_SIZE] & 0x0F;
 
 		if ((EventID >= 3) && (EventID <= 5)) {
 			LastLeftEvent = 0;
@@ -1177,10 +1162,6 @@ static unsigned char fts_event_handler_type_b(struct fts_ts_info *info,
 						   MT_TOOL_FINGER,
 						   1 + (palm << 1));
 
-#ifdef CONFIG_WAKE_GESTURES
-			if (suspended)
-				x += 5000;
-#endif
 			input_report_key(info->input_dev, BTN_TOUCH, 1);
 			input_report_key(info->input_dev,
 					BTN_TOOL_FINGER, 1);
@@ -1951,7 +1932,6 @@ static int fts_probe(struct i2c_client *client, const struct i2c_device_id *idp)
 		goto err_enable_irq;
 	}
 
-	info->board->irq_type |= IRQF_PERF_CRITICAL;
 	retval = request_threaded_irq(info->irq, NULL,
 			fts_interrupt_handler, info->board->irq_type,
 			FTS_TS_DRV_NAME, info);
@@ -1970,8 +1950,6 @@ static int fts_probe(struct i2c_client *client, const struct i2c_device_id *idp)
 #endif
 
 #ifdef CONFIG_FB
-	INIT_WORK(&info->resume_work, touch_resume_worker);
-	INIT_WORK(&info->suspend_work, touch_suspend_worker);
 	info->fb_notif.notifier_call = touch_fb_notifier_callback;
 	retval = fb_register_client(&info->fb_notif);
 	if (retval < 0) {
@@ -2010,11 +1988,7 @@ static int fts_probe(struct i2c_client *client, const struct i2c_device_id *idp)
 #ifdef FEATURE_FTS_PRODUCTION_CODE
 	fts_production_init(info);
 #endif /* FEATURE_FTS_PRODUCTION_CODE */
-#ifdef CONFIG_WAKE_GESTURES
-	device_init_wakeup(&client->dev, true);
-#else
 	device_init_wakeup(&client->dev, false);
-#endif
 	if (device_may_wakeup(&info->client->dev))
 		enable_irq_wake(info->irq);
 	info->lowpower_mode = true;
@@ -2475,17 +2449,6 @@ static int fts_suspend(struct i2c_client *client, pm_message_t mesg)
 		return 0;
 	}
 
-#ifdef CONFIG_WAKE_GESTURES
-	if (wg_switch) {
-		mutex_lock(&info->device_mutex);
-		fts_command(info, FLUSHBUFFER);
-		fts_release_all_finger(info);
-		suspended = true;
-		mutex_unlock(&info->device_mutex);
-
-		return 0;
-	}
-#endif
 	fts_stop_device(info);
 
 	gpio_set_value(info->switch_gpio, 1);
@@ -2503,19 +2466,6 @@ static int fts_resume(struct i2c_client *client)
 
 	tsp_debug_info(&info->client->dev, "%s power state : %d\n",
 			__func__, info->fts_power_state);
-
-#ifdef CONFIG_WAKE_GESTURES
-	if (wg_switch) {
-		mutex_lock(&info->device_mutex);
-		fts_release_all_finger(info);
-		info->reinit_done = false;
-		fts_reinit(info);
-		info->reinit_done = true;
-		mutex_unlock(&info->device_mutex);
-
-		goto exit;
-	}
-#endif
 	/* if resume is called from active state, the i2c bus is not
 	 * switched to AP, skipping resume routine */
 	if (info->fts_power_state == FTS_POWER_STATE_ACTIVE) {
@@ -2533,36 +2483,10 @@ static int fts_resume(struct i2c_client *client)
 
 	fts_start_device(info);
 
-#ifdef CONFIG_WAKE_GESTURES
-exit:
-	if (wg_changed) {
-		wg_switch = wg_switch_temp;
-		wg_changed = false;
-	}
-
-	suspended = false;
-#endif
-
 	return 0;
 }
 
 #if defined(CONFIG_FB)
-static void touch_resume_worker(struct work_struct *work)
-{
-	struct fts_ts_info *info = container_of(work, typeof(*info),
-						resume_work);
-
-	fts_resume(info->client);
-}
-
-static void touch_suspend_worker(struct work_struct *work)
-{
-	struct fts_ts_info *info = container_of(work, typeof(*info),
-						suspend_work);
-
-	fts_suspend(info->client, PMSG_SUSPEND);
-}
-
 static int touch_fb_notifier_callback(struct notifier_block *self,
 		unsigned long event, void *data)
 {
@@ -2572,13 +2496,10 @@ static int touch_fb_notifier_callback(struct notifier_block *self,
 
 	if (ev && ev->data) {
 		int *blank = (int *)ev->data;
-		if (event == FB_EARLY_EVENT_BLANK && *blank != FB_BLANK_UNBLANK) {
-			flush_work(&info->resume_work);
-			schedule_work(&info->suspend_work);
-		} else if (event == FB_EVENT_BLANK && *blank == FB_BLANK_UNBLANK) {
-			flush_work(&info->suspend_work);
-			schedule_work(&info->resume_work);
-		}
+		if (event == FB_EARLY_EVENT_BLANK && *blank != FB_BLANK_UNBLANK)
+			fts_suspend(info->client, PMSG_SUSPEND);
+		else if (event == FB_EVENT_BLANK && *blank == FB_BLANK_UNBLANK)
+			fts_resume(info->client);
 	}
 
 	return 0;
@@ -2627,19 +2548,9 @@ static struct i2c_driver fts_i2c_driver = {
 	.id_table = fts_device_id,
 };
 
-static struct work_struct fts_init_work;
-
-static void fts_driver_init_worker(struct work_struct *work)
-{
-	i2c_add_driver(&fts_i2c_driver);
-}
-
 static int __init fts_driver_init(void)
 {
-	INIT_WORK(&fts_init_work, fts_driver_init_worker);
-	schedule_work(&fts_init_work);
-
-	return 0;
+	return i2c_add_driver(&fts_i2c_driver);
 }
 
 static void __exit fts_driver_exit(void)

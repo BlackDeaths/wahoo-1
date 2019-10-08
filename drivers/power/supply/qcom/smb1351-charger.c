@@ -860,7 +860,7 @@ static int smb1351_chg_otg_regulator_is_enable(struct regulator_dev *rdev)
 	return (reg & CMD_OTG_EN_BIT) ? 1 : 0;
 }
 
-static struct regulator_ops smb1351_chg_otg_reg_ops = {
+struct regulator_ops smb1351_chg_otg_reg_ops = {
 	.enable		= smb1351_chg_otg_regulator_enable,
 	.disable	= smb1351_chg_otg_regulator_disable,
 	.is_enabled	= smb1351_chg_otg_regulator_is_enable,
@@ -1628,7 +1628,7 @@ static int smb1351_parallel_set_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_VOLTAGE_MAX:
 		chip->vfloat_mv = val->intval / 1000;
 		if (!chip->parallel_charger_suspended)
-			rc = smb1351_float_voltage_set(chip, chip->vfloat_mv);
+			rc = smb1351_float_voltage_set(chip, val->intval);
 		break;
 	default:
 		return -EINVAL;

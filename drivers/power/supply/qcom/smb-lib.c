@@ -28,10 +28,6 @@
 #include "battery.h"
 #include "storm-watch.h"
 
-#ifdef CONFIG_FORCE_FAST_CHARGE
-#include <linux/fastcharge.h>
-#endif
-
 static void *smblib_ipc_log;
 
 #define smblib_err(chg, fmt, ...)				\
@@ -264,7 +260,7 @@ enum {
 	MAX_TYPES
 };
 
-static const struct apsd_result smblib_apsd_results[] = {
+static const struct apsd_result const smblib_apsd_results[] = {
 	[UNKNOWN] = {
 		.name	= "UNKNOWN",
 		.bit	= 0,
@@ -885,11 +881,6 @@ static int smblib_usb_icl_vote_callback(struct votable *votable, void *data,
 	pd_icl_ua = get_client_vote_locked(votable, PD_VOTER);
 	default_icl_ua = get_client_vote_locked(votable, DEFAULT_VOTER);
 	usb_icl_ua = get_client_vote_locked(votable, USB_PSY_VOTER);
-
-#ifdef CONFIG_FORCE_FAST_CHARGE
-	if (force_fast_charge && usb_icl_ua == USBIN_500MA)
-		usb_icl_ua = USBIN_900MA;
-#endif
 
 	/* PD and Type-C current */
 	if (pd_icl_ua > 0) {
